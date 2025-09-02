@@ -216,6 +216,74 @@ def send_movie(chat_id, movie_id):
         logger.error(f"Video yuborishda xatolik: {e}")
         safe_send_message(chat_id, "❌ Video yuborishda xatolik yuz berdi.")
 
+# >>>>>>>>>>>>>>>>>>>> YANGI KOD BLOKI <<<<<<<<<<<<<<<<<<<<<<<
+
+def send_broadcast_message(user_id, from_chat_id, message_id, reply_markup=None):
+    """Universal ommaviy xabar yuborish funksiyasi"""
+    try:
+        bot.copy_message(user_id, from_chat_id, message_id, reply_markup=reply_markup)
+        return True
+    except telebot.apihelper.ApiTelegramException as e:
+        if "bot was blocked by the user" in e.description:
+            logger.warning(f"Foydalanuvchi {user_id} botni bloklagan.")
+            # Foydalanuvchini ban qilish yoki nofaol deb belgilash mumkin
+            # user_manager.ban_user(user_id, bot.get_me().id) # Misol uchun ban qilish
+        else:
+            logger.error(f"Xabar yuborishda xatolik (foydalanuvchi: {user_id}): {e}")
+        return False
+    except Exception as e:
+        logger.error(f"Noma'lum xatolik (foydalanuvchi: {user_id}): {e}")
+        return False
+
+@bot.message_handler(content_types=['text', 'photo', 'video', 'document', 'audio', 'voice', 'sticker'], func=lambda msg: user_states.get(msg.from_user.id) == 'broadcast_message')
+def handle_broadcast_content(message):
+    """Ommaviy xabar uchun istalgan turdagi kontentni qabul qilish"""
+    admin_id = message.from_user.id
+    try:
+        user_list = user_manager.get_users_for_broadcast()
+        if not user_list:
+            safe_send_message(admin_id, "❌ Xabar yuborish uchun (premium bo'lmagan) foydalanuvchilar topilmadi.")
+            user_states.pop(admin_id, None)
+            return
+
+        sent_count = 0
+        failed_count = 0
+
+        confirmation_msg = safe_send_message(admin_id, f"⏳ Ommaviy xabar yuborish boshlandi... Jami: {len(user_list)} ta foydalanuvchi.")
+
+        start_time = time.time()
+
+        for user_id in user_list:
+            if send_broadcast_message(user_id, message.chat.id, message.message_id, reply_markup=message.reply_markup):
+                sent_count += 1
+            else:
+                failed_count += 1
+
+            if (sent_count + failed_count) % 25 == 0:
+                time.sleep(1)
+
+        end_time = time.time()
+        total_time = round(end_time - start_time)
+
+        result_text = f"✅ Ommaviy xabar yuborish yakunlandi!\n\n" \
+                      f"👥 Jami foydalanuvchilar: {len(user_list)}\n" \
+                      f"👍 Muvaffaqiyatli yuborildi: {sent_count}\n" \
+                      f"👎 Xatolik yuz berdi: {failed_count}\n" \
+                      f"⏱️ Sarflangan vaqt: {total_time} soniya"
+
+        if confirmation_msg:
+            safe_edit_message(admin_id, confirmation_msg.message_id, result_text)
+        else:
+            safe_send_message(admin_id, result_text)
+
+    except Exception as e:
+        logger.error(f"Ommaviy xabar yuborishda umumiy xatolik: {e}")
+        safe_send_message(admin_id, "❌ Ommaviy xabar yuborishda kutilmagan xatolik yuz berdi.")
+    finally:
+        user_states.pop(admin_id, None)
+
+# >>>>>>>>>>>>>>>>>>>> YANGI KOD BLOKI TUGADI <<<<<<<<<<<<<<<<<<<<<<<
+
 @bot.message_handler(commands=['start'])
 def start_command(message):
     try:
@@ -364,8 +432,17 @@ def handle_premium(message):
 
 @bot.message_handler(func=lambda msg: msg.from_user.id in ADMIN_IDS and msg.text and (msg.text in KEYBOARD_TEXTS.values() or msg.text in ADMIN_COMMANDS.values()))
 def handle_admin_keyboard(message):
+    """Admin klaviatura handleri"""
     try:
         user_id = message.from_user.id
+
+        # Ommaviy xabar uchun holatni belgilash
+        if message.text == ADMIN_COMMANDS['broadcast']:
+            safe_send_message(user_id, "📢 Ommaviy xabar uchun postni menga yuboring yoki forward qiling.\n\nBu matn, rasm, video yoki boshqa istalgan turdagi xabar bo'lishi mumkin.")
+            user_states[user_id] = 'broadcast_message'
+            return
+
+        # Qolgan admin tugmalari
         if message.text == KEYBOARD_TEXTS['admin']:
             safe_send_message(user_id, "⚙️ Admin Panel", reply_markup=get_admin_keyboard())
         elif message.text == KEYBOARD_TEXTS['back']:
@@ -380,6 +457,7 @@ def handle_admin_keyboard(message):
                 movie_stats = movie_manager.get_stats()
                 user_stats = user_manager.get_user_stats()
                 payment_stats = payment_manager.get_payment_stats()
+
                 text = f"""📊 Bot Statistikasi
 🎬 <b>Filmlar:</b>
 • Jami filmlar: {movie_stats['total_movies']}
@@ -396,9 +474,6 @@ def handle_admin_keyboard(message):
             except Exception as e:
                 logger.error(f"Statistika olishda xatolik: {e}")
                 safe_send_message(user_id, "❌ Statistikani olishda xatolik yuz berdi.")
-        elif message.text == ADMIN_COMMANDS['broadcast']:
-            safe_send_message(user_id, "📢 Ommaviy xabar yuborish uchun xabar matnini yuboring:")
-            user_states[user_id] = 'broadcast_message'
         elif message.text == ADMIN_COMMANDS['manage_channels']:
             try:
                 channels = channel_manager.get_all_channels()
@@ -459,7 +534,6 @@ def handle_admin_keyboard(message):
                 safe_send_message(user_id, "❌ To'lov so'rovlarini yuklashda xatolik.")
     except Exception as e:
         logger.error(f"Admin keyboard handle xatolik: {e}")
-
 @bot.message_handler(content_types=['video'], func=lambda msg: user_states.get(msg.from_user.id) == 'adding_video')
 def handle_video_upload(message):
     admin_id = message.from_user.id
@@ -719,11 +793,72 @@ def handle_admin_payment_decision(call):
 # >>>>>>>>>>>>>>>>>>>> 1-TUZATISH: Admin holatlarini boshqaruvchi handler YUQORIGA KO'CHIRILDI <<<<<<<<<<<<<<<<<<<<<<<
 @bot.message_handler(func=lambda msg: msg.from_user.id in ADMIN_IDS and msg.from_user.id in user_states)
 def handle_admin_states(message):
-    """Admin holatlarini boshqarish"""
+    """Admin holatlarini boshqarish (faqat matnli holatlar uchun)"""
     try:
         user_id = message.from_user.id
         state = user_states.get(user_id)
-        if state == 'view_payments' and message.text.isdigit():
+
+        if state == 'manage_channels' and message.text.startswith('https://t.me/'):
+            # Kanal qo'shish
+            try:
+                success, msg = channel_manager.add_channel(message.text)
+                if success:
+                    safe_send_message(user_id, f"✅ {msg}")
+                else:
+                    safe_send_message(user_id, f"❌ {msg}")
+            except Exception as e:
+                logger.error(f"Kanal qo'shishda xatolik: {e}")
+                safe_send_message(user_id, "❌ Kanal qo'shishda xatolik yuz berdi.")
+
+        elif state == 'change_prices' and message.text:
+            # Narxlarni o'zgartirish
+            try:
+                if ',' in message.text:
+                    parts = message.text.split(',')
+                    if len(parts) == 3:
+                        new_prices = {'week': int(parts[0].strip()), 'month': int(parts[1].strip()), 'year': int(parts[2].strip())}
+                        if payment_manager.update_prices(new_prices):
+                            safe_send_message(user_id, f"✅ Narxlar yangilandi:\n• 1 hafta: {new_prices['week']:,} so'm\n• 1 oy: {new_prices['month']:,} so'm\n• 1 yil: {new_prices['year']:,} so'm")
+                        else:
+                            safe_send_message(user_id, "❌ Narxlarni saqlashda xatolik.")
+                    else:
+                        safe_send_message(user_id, "❌ Noto'g'ri format! 3 ta narx kiritish kerak.\nMasalan: 15000,40000,350000")
+                        return
+                else:
+                    safe_send_message(user_id, "❌ Vergul (,) bilan ajrating!\nMasalan: 15000,40000,350000")
+                    return
+            except ValueError:
+                safe_send_message(user_id, "❌ Faqat raqamlar kiriting!")
+                return
+            except Exception as e:
+                logger.error(f"Narx o'zgartirishda xatolik: {e}")
+                safe_send_message(user_id, "❌ Narxlarni o'zgartirishda xatolik.")
+            user_states.pop(user_id, None)
+
+        elif state == 'change_card' and message.text:
+            # Karta ma'lumotlarini o'zgartirish
+            try:
+                if ',' in message.text:
+                    parts = message.text.split(',')
+                    if len(parts) == 3:
+                        new_card = {'card_number': parts[0].strip(), 'card_holder': parts[1].strip(), 'bank_name': parts[2].strip()}
+                        if payment_manager.update_card_info(new_card):
+                            safe_send_message(user_id, f"✅ Karta ma'lumotlari yangilandi:\n• Karta: {new_card['card_number']}\n• Egasi: {new_card['card_holder']}\n• Bank: {new_card['bank_name']}")
+                        else:
+                            safe_send_message(user_id, "❌ Karta ma'lumotlarini saqlashda xatolik.")
+                    else:
+                        safe_send_message(user_id, "❌ Noto'g'ri format! 3 ta ma'lumot kiritish kerak.\nMasalan: 8600 0000 0000 0000,ADMIN,Uzcard")
+                        return
+                else:
+                    safe_send_message(user_id, "❌ Vergul (,) bilan ajrating!\nMasalan: 8600 0000 0000 0000,ADMIN NOMI,Uzcard")
+                    return
+            except Exception as e:
+                logger.error(f"Karta ma'lumot o'zgartirishda xatolik: {e}")
+                safe_send_message(user_id, "❌ Karta ma'lumotlarini o'zgartirishda xatolik.")
+            user_states.pop(user_id, None)
+
+        elif state == 'view_payments' and message.text.isdigit():
+            # To'lov ko'rish
             try:
                 payment_id = int(message.text)
                 pending_payments = payment_manager.get_pending_payments()
@@ -750,84 +885,8 @@ def handle_admin_states(message):
             except Exception as e:
                 logger.error(f"To'lov ko'rishda xatolik: {e}")
                 safe_send_message(user_id, "❌ To'lovni yuklashda xatolik.")
-            return
-
-        elif state == 'broadcast_message':
-            try:
-                user_list = user_manager.get_users_for_broadcast()
-                if not user_list:
-                    safe_send_message(user_id, "❌ Xabar yuborish uchun (premium bo'lmagan) foydalanuvchilar topilmadi.")
-                    user_states.pop(user_id, None)
-                    return
-                content = {'text': message.text, 'parse_mode': 'HTML'}
-                broadcast_id = broadcast_manager.start_broadcast(bot, user_list, 'text', content, user_id, message.from_user.username)
-                if broadcast_id:
-                    safe_send_message(user_id, f"✅ Ommaviy xabar yuborish boshlandi!\n\n🆔 Broadcast ID: {broadcast_id}\n👥 Foydalanuvchilar: {len(user_list)}")
-                else:
-                    safe_send_message(user_id, "❌ Ommaviy xabar yuborishda xatolik yuz berdi.")
-            except Exception as e:
-                logger.error(f"Broadcast yuborishda xatolik: {e}")
-                safe_send_message(user_id, "❌ Ommaviy xabar yuborishda xatolik yuz berdi.")
-            user_states.pop(user_id, None)
-
-        elif state == 'manage_channels' and message.text.startswith('https://t.me/'):
-            try:
-                success, msg = channel_manager.add_channel(message.text)
-                if success:
-                    safe_send_message(user_id, f"✅ {msg}")
-                else:
-                    safe_send_message(user_id, f"❌ {msg}")
-            except Exception as e:
-                logger.error(f"Kanal qo'shishda xatolik: {e}")
-                safe_send_message(user_id, "❌ Kanal qo'shishda xatolik yuz berdi.")
-
-        elif state == 'change_prices' and message.text:
-            try:
-                if ',' in message.text:
-                    parts = message.text.split(',')
-                    if len(parts) == 3:
-                        new_prices = {'week': int(parts[0].strip()), 'month': int(parts[1].strip()), 'year': int(parts[2].strip())}
-                        if payment_manager.update_prices(new_prices):
-                            safe_send_message(user_id, f"✅ Narxlar yangilandi:\n• 1 hafta: {new_prices['week']:,} so'm\n• 1 oy: {new_prices['month']:,} so'm\n• 1 yil: {new_prices['year']:,} so'm")
-                        else:
-                            safe_send_message(user_id, "❌ Narxlarni saqlashda xatolik.")
-                    else:
-                        safe_send_message(user_id, "❌ Noto'g'ri format! 3 ta narx kiritish kerak.\nMasalan: 15000,40000,350000")
-                        return
-                else:
-                    safe_send_message(user_id, "❌ Vergul (,) bilan ajrating!\nMasalan: 15000,40000,350000")
-                    return
-            except ValueError:
-                safe_send_message(user_id, "❌ Faqat raqamlar kiriting!")
-                return
-            except Exception as e:
-                logger.error(f"Narx o'zgartirishda xatolik: {e}")
-                safe_send_message(user_id, "❌ Narxlarni o'zgartirishda xatolik.")
-            user_states.pop(user_id, None)
-
-        elif state == 'change_card' and message.text:
-            try:
-                if ',' in message.text:
-                    parts = message.text.split(',')
-                    if len(parts) == 3:
-                        new_card = {'card_number': parts[0].strip(), 'card_holder': parts[1].strip(), 'bank_name': parts[2].strip()}
-                        if payment_manager.update_card_info(new_card):
-                            safe_send_message(user_id, f"✅ Karta ma'lumotlari yangilandi:\n• Karta: {new_card['card_number']}\n• Egasi: {new_card['card_holder']}\n• Bank: {new_card['bank_name']}")
-                        else:
-                            safe_send_message(user_id, "❌ Karta ma'lumotlarini saqlashda xatolik.")
-                    else:
-                        safe_send_message(user_id, "❌ Noto'g'ri format! 3 ta ma'lumot kiritish kerak.\nMasalan: 8600 0000 0000 0000,ADMIN,Uzcard")
-                        return
-                else:
-                    safe_send_message(user_id, "❌ Vergul (,) bilan ajrating!\nMasalan: 8600 0000 0000 0000,ADMIN NOMI,Uzcard")
-                    return
-            except Exception as e:
-                logger.error(f"Karta ma'lumot o'zgartirishda xatolik: {e}")
-                safe_send_message(user_id, "❌ Karta ma'lumotlarini o'zgartirishda xatolik.")
-            user_states.pop(user_id, None)
     except Exception as e:
-        logger.error(f"Admin holatlarni boshqarishda xatolik: {e}")
-
+        logger.error(f"Admin matnli holatlarini boshqarishda xatolik: {e}")
 
 @bot.message_handler(func=lambda msg: msg.text and msg.text.isdigit())
 def handle_id_message(message):
