@@ -56,7 +56,7 @@ START_MESSAGE = """🎬 <b>Kino Botga xush kelibsiz!</b>
 • Reklamasiz tajriba
 • Tezkor qidiruv
 
-<i>Botdan foydalanish uchun majburiy kanallarga a'zo bo'ling yoki 💎 Premium obuna xarid qiling.</i>"""
+"""
 
 MEMBERSHIP_REQUIRED_MESSAGE = """🛑 <b>Botdan foydalanish uchun quyidagi shartlardan birini bajaring:</b>
 
@@ -124,18 +124,21 @@ KEYBOARD_TEXTS = {
     'admin': '⚙️ Admin Panel',
     'back': '🔙 Orqaga',
     'premium': '💎 Premium',
-    'channels': '📢 Kanallar',
+    'genres': '🎭 Janrlar',
+    'top_movies': '🏆 Top Kinolar',
+    'latest_movies': '✨ Yangi qo\'shilganlar',
     'check_subscription': '✅ Obunani tekshirish'
 }
 
 ADMIN_COMMANDS = {
     'add_video': '📹 Video qo\'shish',
+    'delete_video': '🎬 Kinoni o\'chirish',
     'stats': '📊 Statistika',
     'broadcast': '📢 Ommaviy xabar',
     'manage_channels': '📢 Kanallarni boshqarish',
+    'manage_users': '👥 Foydalanuvchilarni boshqarish',
     'premium_settings': '💎 Premium sozlamalar',
-    'payment_requests': '💳 To\'lov so\'rovlari',
-    'users_management': '👥 Foydalanuvchilar'
+    'payment_requests': '💳 To\'lov so\'rovlari'
 }
 
 # To'lov holatlari

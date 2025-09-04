@@ -114,14 +114,30 @@ def get_subscription_keyboard():
 
 def get_main_keyboard(user_id):
     """Asosiy klaviatura"""
-    keyboard = types.ReplyKeyboardMarkup(resize_keyboard=True, row_width=1)
-    keyboard.add(types.KeyboardButton(KEYBOARD_TEXTS['search']))
+    keyboard = types.ReplyKeyboardMarkup(resize_keyboard=True, row_width=2)
+
+    # Birinchi qator
+    search_btn = types.KeyboardButton(KEYBOARD_TEXTS['search'])
+    genres_btn = types.KeyboardButton(KEYBOARD_TEXTS['genres'])
+    keyboard.add(search_btn, genres_btn)
+
+    # Ikkinchi qator
+    top_movies_btn = types.KeyboardButton(KEYBOARD_TEXTS['top_movies'])
+    latest_movies_btn = types.KeyboardButton(KEYBOARD_TEXTS['latest_movies'])
+    keyboard.add(top_movies_btn, latest_movies_btn)
+
+    # Uchinchi qator (Premium)
     if payment_manager.is_premium_user(user_id):
-        keyboard.add(types.KeyboardButton(KEYBOARD_TEXTS['premium'] + " ✅"))
+        premium_btn = types.KeyboardButton(KEYBOARD_TEXTS['premium'] + " ✅")
     else:
-        keyboard.add(types.KeyboardButton(KEYBOARD_TEXTS['premium']))
+        premium_btn = types.KeyboardButton(KEYBOARD_TEXTS['premium'])
+    keyboard.add(premium_btn)
+
+    # To'rtinchi qator (Admin)
     if user_id in ADMIN_IDS:
-        keyboard.add(types.KeyboardButton(KEYBOARD_TEXTS['admin']))
+        admin_btn = types.KeyboardButton(KEYBOARD_TEXTS['admin'])
+        keyboard.add(admin_btn)
+
     return keyboard
 
 def get_admin_keyboard():
@@ -129,11 +145,15 @@ def get_admin_keyboard():
     keyboard = types.ReplyKeyboardMarkup(resize_keyboard=True, row_width=2)
     keyboard.add(
         types.KeyboardButton(ADMIN_COMMANDS['add_video']),
-        types.KeyboardButton(ADMIN_COMMANDS['stats'])
+        types.KeyboardButton(ADMIN_COMMANDS['delete_video'])
     )
     keyboard.add(
-        types.KeyboardButton(ADMIN_COMMANDS['broadcast']),
-        types.KeyboardButton(ADMIN_COMMANDS['manage_channels'])
+        types.KeyboardButton(ADMIN_COMMANDS['stats']),
+        types.KeyboardButton(ADMIN_COMMANDS['broadcast'])
+    )
+    keyboard.add(
+        types.KeyboardButton(ADMIN_COMMANDS['manage_channels']),
+        types.KeyboardButton(ADMIN_COMMANDS['manage_users'])
     )
     keyboard.add(
         types.KeyboardButton(ADMIN_COMMANDS['premium_settings']),
@@ -319,9 +339,9 @@ def search_request(message):
             # 2-TUZATISH: parse_mode='HTML' qo'shildi
             safe_send_message(user_id, text, reply_markup=get_subscription_keyboard(), parse_mode='HTML')
             return
-        text = "Kinoni topish uchun uning nomini yoki kino kodini yozing.\n\nYoki barcha kinolarni ko'rish uchun quyidagi tugmani bosing:"
+        text = "Kinoni topish uchun uning nomini yoki kino kodini yozing.\n\nYoki ayrim kinolarni ko'rish uchun quyidagi tugmani bosing:"
         keyboard = types.InlineKeyboardMarkup([[
-            types.InlineKeyboardButton("🔎 Barcha kinolarni ko'rish", switch_inline_query_current_chat="")
+            types.InlineKeyboardButton("🔎 kinolarni ko'rish", switch_inline_query_current_chat="")
         ]])
         safe_send_message(user_id, text, reply_markup=keyboard)
     except Exception as e:
@@ -391,6 +411,148 @@ def inline_search(query):
         except Exception as api_err:
             logger.error(f"Inline xatolik javobini yuborib bo'lmadi: {api_err}")
 
+
+
+
+def generate_movie_list_text(movies, list_title):
+    """Kino ro'yxatini matn ko'rinishida formatlash"""
+    if not movies:
+        return f"Hozircha {list_title.lower()} topilmadi."
+
+    text = f"<b>{list_title}:</b>\n\n"
+    for i, (movie_id, data) in enumerate(movies.items(), 1):
+        title = data.get('title', 'Noma\'lum')
+        year = data.get('year', '')
+        rating = data.get('rating', 0.0)
+        text += f"<b>{i}. {title}</b> ({year}) - ⭐ {rating}\n"
+        text += f"Kinoni ko'rish uchun yuboring: <code>{movie_id}</code>\n\n"
+    return text
+
+@bot.message_handler(func=lambda msg: msg.text == KEYBOARD_TEXTS['top_movies'])
+def handle_top_movies(message):
+    """Eng ommabop kinolar ro'yxatini yuborish"""
+    try:
+        user_id = message.from_user.id
+        user_manager.update_user_activity(user_id)
+
+        if not is_user_member(user_id):
+            prices = payment_manager.get_prices()
+            text = MEMBERSHIP_REQUIRED_MESSAGE.format(
+                channels="\n".join([f"📢 @{ch['username']}" for ch in channel_manager.get_channel_list_for_check()]),
+                week_price=prices['week'],
+                month_price=prices['month'],
+                year_price=prices['year']
+            )
+            safe_send_message(user_id, text, reply_markup=get_subscription_keyboard(), parse_mode='HTML')
+            return
+
+        all_movies = movie_manager.get_all_movies()
+        # Kinolarni ko'rishlar soni bo'yicha saralash
+        sorted_movies = sorted(all_movies.items(), key=lambda item: item[1].get('views', 0), reverse=True)
+
+        top_10_movies = dict(sorted_movies[:10])
+
+        text = generate_movie_list_text(top_10_movies, "🏆 Eng Ommabop 10 Kino")
+        safe_send_message(user_id, text, parse_mode='HTML')
+
+    except Exception as e:
+        logger.error(f"Top kinolarni ko'rsatishda xatolik: {e}")
+
+@bot.message_handler(func=lambda msg: msg.text == KEYBOARD_TEXTS['latest_movies'])
+def handle_latest_movies(message):
+    """Eng so'nggi qo'shilgan kinolar ro'yxatini yuborish"""
+    try:
+        user_id = message.from_user.id
+        user_manager.update_user_activity(user_id)
+
+        if not is_user_member(user_id):
+            prices = payment_manager.get_prices()
+            text = MEMBERSHIP_REQUIRED_MESSAGE.format(
+                channels="\n".join([f"📢 @{ch['username']}" for ch in channel_manager.get_channel_list_for_check()]),
+                week_price=prices['week'],
+                month_price=prices['month'],
+                year_price=prices['year']
+            )
+            safe_send_message(user_id, text, reply_markup=get_subscription_keyboard(), parse_mode='HTML')
+            return
+
+        all_movies = movie_manager.get_all_movies() # Bu allaqachon sanasi bo'yicha saralangan
+
+        latest_10_movies = dict(list(all_movies.items())[:10])
+
+        text = generate_movie_list_text(latest_10_movies, "✨ Eng So'nggi Qo'shilgan Kinolar")
+        safe_send_message(user_id, text, parse_mode='HTML')
+
+    except Exception as e:
+        logger.error(f"Yangi kinolarni ko'rsatishda xatolik: {e}")
+
+@bot.message_handler(func=lambda msg: msg.text == KEYBOARD_TEXTS['genres'])
+def handle_genres(message):
+    """Janrlar menyusini ko'rsatish"""
+    try:
+        user_id = message.from_user.id
+        user_manager.update_user_activity(user_id)
+
+        if not is_user_member(user_id):
+            prices = payment_manager.get_prices()
+            text = MEMBERSHIP_REQUIRED_MESSAGE.format(
+                channels="\n".join([f"📢 @{ch['username']}" for ch in channel_manager.get_channel_list_for_check()]),
+                week_price=prices['week'],
+                month_price=prices['month'],
+                year_price=prices['year']
+            )
+            safe_send_message(user_id, text, reply_markup=get_subscription_keyboard(), parse_mode='HTML')
+            return
+
+        all_movies = movie_manager.get_all_movies()
+        genres = set()
+        for movie_data in all_movies.values():
+            for genre in movie_data.get('genres', []):
+                genres.add(genre)
+
+        if not genres:
+            safe_send_message(user_id, "Hozircha janrlar mavjud emas.")
+            return
+
+        keyboard = types.InlineKeyboardMarkup(row_width=2)
+        buttons = [types.InlineKeyboardButton(genre, callback_data=f"genre_{genre}") for genre in sorted(list(genres))]
+        keyboard.add(*buttons)
+
+        safe_send_message(user_id, "🎭 Kerakli janrni tanlang:", reply_markup=keyboard)
+
+    except Exception as e:
+        logger.error(f"Janrlarni ko'rsatishda xatolik: {e}")
+
+@bot.callback_query_handler(func=lambda call: call.data.startswith('genre_'))
+def handle_genre_selection(call):
+    """Tanlangan janr bo'yicha kinolarni ko'rsatish"""
+    try:
+        bot.answer_callback_query(call.id)
+        selected_genre = call.data.split('_', 1)[1]
+
+        all_movies = movie_manager.get_all_movies()
+
+        genre_movies = {}
+        for movie_id, data in all_movies.items():
+            if selected_genre in data.get('genres', []):
+                genre_movies[movie_id] = data
+
+        # Ko'rishlar soni bo'yicha saralash
+        sorted_genre_movies = dict(sorted(genre_movies.items(), key=lambda item: item[1].get('views', 0), reverse=True)[:10])
+
+        text = generate_movie_list_text(sorted_genre_movies, f"🎭 {selected_genre} Janridagi Kinolar (Top 10)")
+        # Xabarni tahrirlash o'rniga yangi xabar yuboramiz, chunki ro'yxat uzun bo'lishi mumkin
+        safe_send_message(call.message.chat.id, text, parse_mode='HTML')
+        # Eski "Janrni tanlang" xabarini o'chirish (ixtiyoriy)
+        try:
+            bot.delete_message(call.message.chat.id, call.message.message_id)
+        except:
+            pass
+
+    except Exception as e:
+        logger.error(f"Janr bo'yicha kinolarni ko'rsatishda xatolik: {e}")
+
+
 @bot.message_handler(func=lambda msg: msg.text and (msg.text == KEYBOARD_TEXTS['premium'] or msg.text == KEYBOARD_TEXTS['premium'] + " ✅"))
 def handle_premium(message):
     try:
@@ -436,14 +598,10 @@ def handle_admin_keyboard(message):
     try:
         user_id = message.from_user.id
 
-        # Ommaviy xabar uchun holatni belgilash
         if message.text == ADMIN_COMMANDS['broadcast']:
             safe_send_message(user_id, "📢 Ommaviy xabar uchun postni menga yuboring yoki forward qiling.\n\nBu matn, rasm, video yoki boshqa istalgan turdagi xabar bo'lishi mumkin.")
             user_states[user_id] = 'broadcast_message'
-            return
-
-        # Qolgan admin tugmalari
-        if message.text == KEYBOARD_TEXTS['admin']:
+        elif message.text == KEYBOARD_TEXTS['admin']:
             safe_send_message(user_id, "⚙️ Admin Panel", reply_markup=get_admin_keyboard())
         elif message.text == KEYBOARD_TEXTS['back']:
             user_states.pop(user_id, None)
@@ -457,60 +615,20 @@ def handle_admin_keyboard(message):
                 movie_stats = movie_manager.get_stats()
                 user_stats = user_manager.get_user_stats()
                 payment_stats = payment_manager.get_payment_stats()
-
-                text = f"""📊 Bot Statistikasi
-🎬 <b>Filmlar:</b>
-• Jami filmlar: {movie_stats['total_movies']}
-• Jami ko'rishlar: {movie_stats['total_views']}
-👥 <b>Foydalanuvchilar:</b>
-• Jami foydalanuvchilar: {user_stats['total_users']}
-• Faol foydalanuvchilar: {user_stats['active_users']}
-• Premium foydalanuvchilar: {payment_stats['active_premium_users']}
-💰 <b>To'lovlar:</b>
-• Jami to'lovlar: {payment_stats['total_payments']}
-• Kutilayotgan: {payment_stats['pending_payments']}
-• Jami daromad: {payment_stats['total_earned']:,} so'm"""
+                text = f"""📊 Bot Statistikasi\n\n🎬 <b>Filmlar:</b>\n• Jami filmlar: {movie_stats['total_movies']}\n• Jami ko'rishlar: {movie_stats['total_views']}\n\n👥 <b>Foydalanuvchilar:</b>\n• Jami foydalanuvchilar: {user_stats['total_users']}\n• Faol foydalanuvchilar: {user_stats['active_users']}\n• Premium foydalanuvchilar: {payment_stats['active_premium_users']}\n\n💰 <b>To'lovlar:</b>\n• Jami to'lovlar: {payment_stats['total_payments']}\n• Kutilayotgan: {payment_stats['pending_payments']}\n• Jami daromad: {payment_stats['total_earned']:,} so'm"""
                 safe_send_message(user_id, text, parse_mode='HTML')
             except Exception as e:
                 logger.error(f"Statistika olishda xatolik: {e}")
                 safe_send_message(user_id, "❌ Statistikani olishda xatolik yuz berdi.")
         elif message.text == ADMIN_COMMANDS['manage_channels']:
-            try:
-                channels = channel_manager.get_all_channels()
-                if not channels:
-                    text = "📢 Hozircha kanallar yo'q.\n\nKanal qo'shish uchun kanal linkini yuboring:"
-                else:
-                    text = "📢 <b>Kanallar ro'yxati:</b>\n\n"
-                    for username, data in channels.items():
-                        status = "✅" if data.get('is_active', True) else "❌"
-                        text += f"{status} @{username} - {data.get('name', username)}\n"
-                    text += "\n💡 Yangi kanal qo'shish uchun https://t.me/kanal_nomi formatda yuboring."
-                keyboard = types.InlineKeyboardMarkup()
-                membership_status = channel_manager.is_membership_required()
-                toggle_text = "A'zolik tekshiruvini o'chirish" if membership_status else "A'zolik tekshiruvini yoqish"
-                keyboard.add(types.InlineKeyboardButton(toggle_text, callback_data='toggle_membership'))
-                safe_send_message(user_id, text, parse_mode='HTML', reply_markup=keyboard)
-                user_states[user_id] = 'manage_channels'
-            except Exception as e:
-                logger.error(f"Kanallarni boshqarishda xatolik: {e}")
-                safe_send_message(user_id, "❌ Kanallarni yuklashda xatolik yuz berdi.")
+            text = generate_channels_list_text()
+            keyboard = get_channels_management_keyboard()
+            safe_send_message(user_id, text, reply_markup=keyboard, parse_mode='HTML')
         elif message.text == ADMIN_COMMANDS['premium_settings']:
             try:
                 prices = payment_manager.get_prices()
                 card_info = payment_manager.get_card_info()
-                text = f"""💎 <b>Premium sozlamalari</b>
-
-💰 <b>Joriy narxlar:</b>
-• 1 hafta: {prices['week']:,} so'm
-• 1 oy: {prices['month']:,} so'm
-• 1 yil: {prices['year']:,} so'm
-
-💳 <b>To'lov ma'lumotlari:</b>
-• Karta: {card_info['card_number']}
-• Egasi: {card_info['card_holder']}
-• Bank: {card_info['bank_name']}
-
-💡 Sozlamalarni o'zgartirish uchun quyidagi tugmalardan foydalaning:"""
+                text = f"""💎 <b>Premium sozlamalari</b>\n\n💰 <b>Joriy narxlar:</b>\n• 1 hafta: {prices['week']:,} so'm\n• 1 oy: {prices['month']:,} so'm\n• 1 yil: {prices['year']:,} so'm\n\n💳 <b>To'lov ma'lumotlari:</b>\n• Karta: {card_info['card_number']}\n• Egasi: {card_info['card_holder']}\n• Bank: {card_info['bank_name']}\n\n💡 Sozlamalarni o'zgartirish uchun quyidagi tugmalardan foydalaning:"""
                 keyboard = types.InlineKeyboardMarkup([[types.InlineKeyboardButton("💰 Narxlarni o'zgartirish", callback_data='change_prices')], [types.InlineKeyboardButton("💳 Karta ma'lumotlarini o'zgartirish", callback_data='change_card')]])
                 safe_send_message(user_id, text, parse_mode='HTML', reply_markup=keyboard)
             except Exception as e:
@@ -532,6 +650,12 @@ def handle_admin_keyboard(message):
             except Exception as e:
                 logger.error(f"To'lov so'rovlari yuklanmadi: {e}")
                 safe_send_message(user_id, "❌ To'lov so'rovlarini yuklashda xatolik.")
+        elif message.text == ADMIN_COMMANDS['delete_video']:
+            safe_send_message(user_id, "🗑 O'chirmoqchi bo'lgan kinoning ID raqamini yuboring:")
+            user_states[user_id] = 'delete_video'
+        elif message.text == ADMIN_COMMANDS['manage_users']:
+            safe_send_message(user_id, "👥 Topmoqchi bo'lgan foydalanuvchining ID raqamini yoki @username'ini yuboring:")
+            user_states[user_id] = 'find_user'
     except Exception as e:
         logger.error(f"Admin keyboard handle xatolik: {e}")
 @bot.message_handler(content_types=['video'], func=lambda msg: user_states.get(msg.from_user.id) == 'adding_video')
@@ -790,7 +914,122 @@ def handle_admin_payment_decision(call):
     except Exception as e:
         logger.error(f"Admin to'lov qarorida xatolik: {e}")
 
-# >>>>>>>>>>>>>>>>>>>> 1-TUZATISH: Admin holatlarini boshqaruvchi handler YUQORIGA KO'CHIRILDI <<<<<<<<<<<<<<<<<<<<<<<
+
+# >>>>>>>>>>>>>>>>>>>> KANAL BOSHQARUVI UCHUN YANGI FUNKSIYALAR <<<<<<<<<<<<<<<<<<<<<<<
+
+def get_channels_management_keyboard():
+    """Kanallarni boshqarish uchun inline klaviatura yaratish"""
+    keyboard = types.InlineKeyboardMarkup(row_width=2)
+
+    add_btn = types.InlineKeyboardButton("➕ Kanal qo'shish", callback_data="add_channel")
+    remove_btn = types.InlineKeyboardButton("🗑 Kanal o'chirish", callback_data="remove_channel_select")
+    toggle_btn = types.InlineKeyboardButton("✏️ Holatini o'zgartirish", callback_data="toggle_channel_select")
+
+    keyboard.add(add_btn)
+    keyboard.add(remove_btn, toggle_btn)
+
+    membership_status = channel_manager.is_membership_required()
+    toggle_membership_text = "❌ Majburiy a'zolikni o'chirish" if membership_status else "✅ Majburiy a'zolikni yoqish"
+    toggle_membership_btn = types.InlineKeyboardButton(toggle_membership_text, callback_data="toggle_membership")
+    keyboard.add(toggle_membership_btn)
+
+    return keyboard
+
+def generate_channels_list_text():
+    """Kanallar ro'yxatini matn ko'rinishida formatlash"""
+    channels = channel_manager.get_all_channels()
+    if not channels:
+        return "Hozircha majburiy kanallar yo'q."
+
+    text = "📢 <b>Kanallar ro'yxati:</b>\n\n"
+    for i, (username, data) in enumerate(channels.items(), 1):
+        status = "✅ Faol" if data.get('is_active', True) else "❌ Nofaol"
+        name = data.get('name', f'@{username}')
+        text += f"{i}. {name} - (<code>@{username}</code>) - {status}\n"
+    return text
+
+@bot.callback_query_handler(func=lambda call: call.data.startswith('ch_manage_'))
+def handle_channel_management_callbacks(call):
+    """Kanallarni boshqarishdagi callback'larni qayta ishlash"""
+    try:
+        admin_id = call.from_user.id
+        parts = call.data.split('_', 3) # 3 ga o'zgartirildi
+
+        # Orqaga qaytishni tekshirish
+        if len(parts) >= 3 and parts[2] == 'back':
+             bot.answer_callback_query(call.id)
+             text = generate_channels_list_text()
+             keyboard = get_channels_management_keyboard()
+             bot.edit_message_text(text, admin_id, call.message.message_id, reply_markup=keyboard, parse_mode='HTML')
+             return
+
+        action = parts[2]
+        username = parts[3]
+
+        msg = ""
+        if action == 'delete':
+            success, msg = channel_manager.remove_channel(username)
+        elif action == 'toggle':
+            success, msg = channel_manager.toggle_channel_status(username)
+
+        bot.answer_callback_query(call.id, text=msg, show_alert=True)
+
+        # Har qanday holatda menyuni yangilash
+        text = generate_channels_list_text()
+        keyboard = get_channels_management_keyboard()
+        bot.edit_message_text(text, admin_id, call.message.message_id, reply_markup=keyboard, parse_mode='HTML')
+
+    except Exception as e:
+        logger.error(f"Kanalni boshqarish callback xatoligi: {e}")
+        bot.answer_callback_query(call.id, "❌ Xatolik yuz berdi!")
+
+@bot.callback_query_handler(func=lambda call: call.data in ['add_channel', 'remove_channel_select', 'toggle_channel_select', 'toggle_membership'])
+def handle_channel_menu_selection(call):
+    """Kanallarni boshqarish menyusidagi tugmalarni bosish"""
+    try:
+        admin_id = call.from_user.id
+        channels = channel_manager.get_all_channels()
+
+        if call.data == 'add_channel':
+            bot.answer_callback_query(call.id)
+            user_states[admin_id] = 'add_channel'
+            bot.edit_message_text("➕  kanalingizning linkini (https://t.me/...) yoki @username'ini yuboring.", admin_id, call.message.message_id)
+            return
+
+        if call.data == 'toggle_membership':
+            success, msg = channel_manager.toggle_membership_check()
+            bot.answer_callback_query(call.id, msg)
+            # Menyuni yangilash
+            text = generate_channels_list_text()
+            keyboard = get_channels_management_keyboard()
+            bot.edit_message_text(text, admin_id, call.message.message_id, reply_markup=keyboard, parse_mode='HTML')
+            return
+
+        if not channels:
+            bot.answer_callback_query(call.id, "Hozircha kanallar yo'q!", show_alert=True)
+            return
+
+        keyboard = types.InlineKeyboardMarkup(row_width=1)
+        action_word = ""
+
+        if call.data == 'remove_channel_select':
+            action_word = "O'chirish uchun"
+            callback_prefix = "ch_manage_delete_"
+        elif call.data == 'toggle_channel_select':
+            action_word = "Holatini o'zgartirish uchun"
+            callback_prefix = "ch_manage_toggle_"
+
+        for username, data in channels.items():
+            name = data.get('name', f'@{username}')
+            keyboard.add(types.InlineKeyboardButton(name, callback_data=f"{callback_prefix}{username}"))
+
+        keyboard.add(types.InlineKeyboardButton("🔙 Orqaga", callback_data="ch_manage_back_"))
+        bot.edit_message_text(f"👇 {action_word} kanalni tanlang:", admin_id, call.message.message_id, reply_markup=keyboard)
+
+    except Exception as e:
+        logger.error(f"Kanal menyusini tanlashda xatolik: {e}")
+
+
 @bot.message_handler(func=lambda msg: msg.from_user.id in ADMIN_IDS and msg.from_user.id in user_states)
 def handle_admin_states(message):
     """Admin holatlarini boshqarish (faqat matnli holatlar uchun)"""
@@ -798,20 +1037,49 @@ def handle_admin_states(message):
         user_id = message.from_user.id
         state = user_states.get(user_id)
 
-        if state == 'manage_channels' and message.text.startswith('https://t.me/'):
-            # Kanal qo'shish
+        if state == 'add_channel':
+            success, msg = channel_manager.add_channel(message.text)
+            safe_send_message(user_id, msg)
+            user_states.pop(user_id, None)
+            text = generate_channels_list_text()
+            keyboard = get_channels_management_keyboard()
+            safe_send_message(user_id, text, reply_markup=keyboard, parse_mode='HTML')
+        elif state == 'delete_video':
             try:
-                success, msg = channel_manager.add_channel(message.text)
-                if success:
-                    safe_send_message(user_id, f"✅ {msg}")
+                movie_id = int(message.text)
+                success, msg = movie_manager.delete_movie(movie_id)
+                safe_send_message(user_id, msg)
+            except ValueError:
+                safe_send_message(user_id, "❌ Noto'g'ri format. Iltimos, faqat kino ID raqamini yuboring.")
+            finally:
+                user_states.pop(user_id, None)
+        elif state == 'find_user':
+            try:
+                query = message.text
+                user_data = user_manager.find_user(query)
+                if user_data:
+                    user_id_found = user_data.get('user_id')
+                    username = user_data.get('username', 'N/A')
+                    first_name = user_data.get('first_name', 'N/A')
+                    joined_date = user_data.get('joined_date', 'N/A')
+                    movies_watched = user_data.get('movies_watched', 0)
+                    is_premium = payment_manager.is_premium_user(user_id_found)
+                    premium_text = "✅ Ha"
+                    if is_premium:
+                        premium_info = payment_manager.get_premium_info(user_id_found)
+                        if premium_info and premium_info.get('expire_date'):
+                            from datetime import datetime
+                            expire_date = datetime.fromisoformat(premium_info['expire_date']).strftime('%d.%m.%Y')
+                            premium_text += f" (Tugash sanasi: {expire_date})"
+                    else:
+                        premium_text = "❌ Yo'q"
+                    text = f"<b>Foydalanuvchi ma'lumotlari:</b>\n\n👤 <b>Ism:</b> {first_name}\n🆔 <b>User ID:</b> <code>{user_id_found}</code>\n✍️ <b>Username:</b> @{username}\n📅 <b>Qo'shilgan sana:</b> {joined_date[:10]}\n🎬 <b>Ko'rilgan kinolar:</b> {movies_watched} ta\n💎 <b>Premium statusi:</b> {premium_text}"
+                    safe_send_message(user_id, text, parse_mode='HTML')
                 else:
-                    safe_send_message(user_id, f"❌ {msg}")
-            except Exception as e:
-                logger.error(f"Kanal qo'shishda xatolik: {e}")
-                safe_send_message(user_id, "❌ Kanal qo'shishda xatolik yuz berdi.")
-
-        elif state == 'change_prices' and message.text:
-            # Narxlarni o'zgartirish
+                    safe_send_message(user_id, f"❌ '{query}' bo'yicha foydalanuvchi topilmadi.")
+            finally:
+                user_states.pop(user_id, None)
+        elif state == 'change_prices':
             try:
                 if ',' in message.text:
                     parts = message.text.split(',')
@@ -830,13 +1098,9 @@ def handle_admin_states(message):
             except ValueError:
                 safe_send_message(user_id, "❌ Faqat raqamlar kiriting!")
                 return
-            except Exception as e:
-                logger.error(f"Narx o'zgartirishda xatolik: {e}")
-                safe_send_message(user_id, "❌ Narxlarni o'zgartirishda xatolik.")
-            user_states.pop(user_id, None)
-
-        elif state == 'change_card' and message.text:
-            # Karta ma'lumotlarini o'zgartirish
+            finally:
+                user_states.pop(user_id, None)
+        elif state == 'change_card':
             try:
                 if ',' in message.text:
                     parts = message.text.split(',')
@@ -852,26 +1116,16 @@ def handle_admin_states(message):
                 else:
                     safe_send_message(user_id, "❌ Vergul (,) bilan ajrating!\nMasalan: 8600 0000 0000 0000,ADMIN NOMI,Uzcard")
                     return
-            except Exception as e:
-                logger.error(f"Karta ma'lumot o'zgartirishda xatolik: {e}")
-                safe_send_message(user_id, "❌ Karta ma'lumotlarini o'zgartirishda xatolik.")
-            user_states.pop(user_id, None)
-
-        elif state == 'view_payments' and message.text.isdigit():
-            # To'lov ko'rish
+            finally:
+                user_states.pop(user_id, None)
+        elif state == 'view_payments':
             try:
                 payment_id = int(message.text)
                 pending_payments = payment_manager.get_pending_payments()
                 if str(payment_id) in pending_payments:
                     data = pending_payments[str(payment_id)]
                     username_display = f"@{data['username']}" if data['username'] != 'Noma\'lum' else "Username yo'q"
-                    text = f"""💳 <b>To'lov so'rovi #{payment_id}</b>
-
-👤 <b>Foydalanuvchi:</b> {username_display}
-🆔 <b>User ID:</b> {data['user_id']}
-💰 <b>Summa:</b> {data['amount']:,} so'm
-📅 <b>Reja:</b> {data['plan_type']}
-🕐 <b>Sana:</b> {data['created_at'][:16]}"""
+                    text = f"""💳 <b>To'lov so'rovi #{payment_id}</b>\n\n👤 <b>Foydalanuvchi:</b> {username_display}\n🆔 <b>User ID:</b> {data['user_id']}\n💰 <b>Summa:</b> {data['amount']:,} so'm\n📅 <b>Reja:</b> {data['plan_type']}\n🕐 <b>Sana:</b> {data['created_at'][:16]}"""
                     keyboard = types.InlineKeyboardMarkup([[types.InlineKeyboardButton("✅ Tasdiqlash", callback_data=f"approve_payment_{payment_id}"), types.InlineKeyboardButton("❌ Rad etish", callback_data=f"reject_payment_{payment_id}")]])
                     if data.get('file_id'):
                         try:

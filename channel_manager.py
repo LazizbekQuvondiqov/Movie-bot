@@ -1,4 +1,3 @@
-# channel_manager.py
 import json
 import os
 import logging
@@ -21,8 +20,7 @@ class ChannelManager:
                 initial_data = {
                     "channels": {},
                     "settings": {
-                        "check_membership": True,
-                        "premium_bypass": True
+                        "check_membership": True
                     }
                 }
                 with open(self.channels_file, 'w', encoding='utf-8') as f:
@@ -33,14 +31,15 @@ class ChannelManager:
 
     def _load_data(self):
         try:
-            with open(self.channels_file, 'r', encoding='utf-8') as f:
-                data = json.load(f)
-                data.setdefault("channels", {})
-                data.setdefault("settings", {"check_membership": True, "premium_bypass": True})
-                return data
+            with self.lock:
+                with open(self.channels_file, 'r', encoding='utf-8') as f:
+                    data = json.load(f)
+                    data.setdefault("channels", {})
+                    data.setdefault("settings", {"check_membership": True})
+                    return data
         except Exception as e:
             logger.error(f"Channels ma'lumot yuklashda xatolik: {e}")
-            return {"channels": {}, "settings": {"check_membership": True, "premium_bypass": True}}
+            return {"channels": {}, "settings": {"check_membership": True}}
 
     def _save_data(self, data):
         with self.lock:
@@ -54,41 +53,31 @@ class ChannelManager:
                 logger.error(f"Channels ma'lumot saqlashda xatolik: {e}")
                 return False
 
-    def add_channel(self, channel_url, channel_name=None):
-        """Kanal qo'shish"""
+    def add_channel(self, channel_input):
+        """Kanal qo'shish (username yoki link orqali)"""
         try:
-            # URL formatini tekshirish va tozalash
-            if not channel_url.startswith('https://t.me/'):
-                return False, "URL https://t.me/ bilan boshlanishi kerak"
-
-            # Username olish
-            username = channel_url.replace('https://t.me/', '').replace('@', '')
-            if not username:
-                return False, "Kanal username topilmadi"
+            username = channel_input.replace('https://t.me/', '').replace('@', '').strip()
+            if not username or ' ' in username:
+                return False, "Noto'g'ri kanal formati. Faqat @username yoki link yuboring."
 
             data = self._load_data()
 
-            # Mavjudligini tekshirish
             if username in data["channels"]:
-                return False, "Kanal allaqachon qo'shilgan"
+                return False, "Bu kanal allaqachon qo'shilgan."
 
-            # Kanal ma'lumotlarini saqlash
             channel_data = {
                 "username": username,
-                "url": channel_url,
-                "name": channel_name or username,
+                "url": f"https://t.me/{username}",
+                "name": f"@{username}", # Boshlang'ich nom
                 "added_date": datetime.now().isoformat(),
                 "is_active": True
             }
-
             data["channels"][username] = channel_data
 
             if self._save_data(data):
                 logger.info(f"Kanal qo'shildi: {username}")
-                return True, "Kanal muvaffaqiyatli qo'shildi"
-
-            return False, "Ma'lumotlarni saqlashda xatolik"
-
+                return True, f"✅ Kanal (@{username}) muvaffaqiyatli qo'shildi!"
+            return False, "Ma'lumotlarni saqlashda xatolik."
         except Exception as e:
             logger.error(f"Kanal qo'shishda xatolik: {e}")
             return False, str(e)
@@ -97,121 +86,71 @@ class ChannelManager:
         """Kanalni o'chirish"""
         try:
             data = self._load_data()
-            username = username.replace('@', '').replace('https://t.me/', '')
-
             if username not in data["channels"]:
-                return False, "Kanal topilmadi"
+                return False, "Kanal topilmadi."
 
             del data["channels"][username]
-
             if self._save_data(data):
                 logger.info(f"Kanal o'chirildi: {username}")
-                return True, "Kanal muvaffaqiyatli o'chirildi"
-
-            return False, "Ma'lumotlarni saqlashda xatolik"
-
+                return True, f"🗑 Kanal (@{username}) muvaffaqiyatli o'chirildi."
+            return False, "Ma'lumotlarni saqlashda xatolik."
         except Exception as e:
             logger.error(f"Kanal o'chirishda xatolik: {e}")
             return False, str(e)
 
     def get_all_channels(self):
         """Barcha kanallarni olish"""
-        try:
-            data = self._load_data()
-            return data.get("channels", {})
-        except Exception as e:
-            logger.error(f"Kanallarni olishda xatolik: {e}")
-            return {}
-
-    def get_active_channels(self):
-        """Faol kanallarni olish"""
-        try:
-            data = self._load_data()
-            channels = data.get("channels", {})
-            active_channels = {}
-
-            for username, channel_data in channels.items():
-                if channel_data.get("is_active", True):
-                    active_channels[username] = channel_data
-
-            return active_channels
-        except Exception as e:
-            logger.error(f"Faol kanallarni olishda xatolik: {e}")
-            return {}
+        return self._load_data().get("channels", {})
 
     def toggle_channel_status(self, username):
         """Kanal holatini o'zgartirish (faol/nofaol)"""
         try:
             data = self._load_data()
-            username = username.replace('@', '').replace('https://t.me/', '')
-
             if username not in data["channels"]:
-                return False, "Kanal topilmadi"
+                return False, "Kanal topilmadi."
 
             current_status = data["channels"][username].get("is_active", True)
-            data["channels"][username]["is_active"] = not current_status
+            new_status = not current_status
+            data["channels"][username]["is_active"] = new_status
 
             if self._save_data(data):
-                new_status = "faollashtirildi" if not current_status else "nofaollashtirildi"
-                logger.info(f"Kanal {new_status}: {username}")
-                return True, f"Kanal {new_status}"
-
-            return False, "Ma'lumotlarni saqlashda xatolik"
-
+                status_text = "✅ Faollashtirildi" if new_status else "❌ Nofaollashtirildi"
+                logger.info(f"Kanal holati o'zgartirildi: {username} - {status_text}")
+                return True, f"Kanal (@{username}) holati o'zgartirildi: {status_text}"
+            return False, "Ma'lumotlarni saqlashda xatolik."
         except Exception as e:
             logger.error(f"Kanal holatini o'zgartirishda xatolik: {e}")
             return False, str(e)
 
     def get_channel_list_for_check(self):
-        """Tekshirish uchun kanallar ro'yxati"""
+        """Tekshirish uchun faol kanallar ro'yxati"""
         try:
-            active_channels = self.get_active_channels()
-            channel_list = []
-
-            for username, channel_data in active_channels.items():
-                channel_list.append({
-                    'username': username,
-                    'url': channel_data['url'],
-                    'name': channel_data.get('name', username)
-                })
-
-            return channel_list
+            all_channels = self.get_all_channels()
+            active_channels = []
+            for channel_data in all_channels.values():
+                if channel_data.get("is_active", True):
+                    active_channels.append(channel_data)
+            return active_channels
         except Exception as e:
             logger.error(f"Tekshirish ro'yxatini olishda xatolik: {e}")
             return []
 
     def is_membership_required(self):
         """A'zolik tekshiruvi yoqilganligini tekshirish"""
-        try:
-            data = self._load_data()
-            return data.get("settings", {}).get("check_membership", True)
-        except Exception as e:
-            logger.error(f"A'zolik sozlamasi tekshirishda xatolik: {e}")
-            return True
+        return self._load_data().get("settings", {}).get("check_membership", True)
 
     def toggle_membership_check(self):
         """A'zolik tekshiruvini yoqish/o'chirish"""
         try:
             data = self._load_data()
             current_status = data.get("settings", {}).get("check_membership", True)
-            data["settings"]["check_membership"] = not current_status
-
+            new_status = not current_status
+            data["settings"]["check_membership"] = new_status
             if self._save_data(data):
-                new_status = "yoqildi" if not current_status else "o'chirildi"
-                logger.info(f"A'zolik tekshiruvi {new_status}")
-                return True, f"A'zolik tekshiruvi {new_status}"
-
-            return False, "Sozlamani saqlashda xatolik"
-
+                status_text = "✅ Yoqildi" if new_status else "❌ O'chirildi"
+                logger.info(f"A'zolik tekshiruvi {status_text}")
+                return True, f"Majburiy a'zolik tekshiruvi {status_text}."
+            return False, "Sozlamani saqlashda xatolik."
         except Exception as e:
             logger.error(f"A'zolik tekshiruvini o'zgartirishda xatolik: {e}")
             return False, str(e)
-
-    def get_settings(self):
-        """Sozlamalarni olish"""
-        try:
-            data = self._load_data()
-            return data.get("settings", {"check_membership": True, "premium_bypass": True})
-        except Exception as e:
-            logger.error(f"Sozlamalarni olishda xatolik: {e}")
-            return {"check_membership": True, "premium_bypass": True}

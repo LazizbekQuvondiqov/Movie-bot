@@ -1,0 +1,14 @@
+{
+  "payments": {},
+  "premium_users": {},
+  "prices": {
+    "week": 15000,
+    "month": 40000,
+    "year": 350000
+  },
+  "card_info": {
+    "card_number": "8600 0000 0000 0000",
+    "card_holder": "ADMIN NOMI",
+    "bank_name": "Uzcard"
+  }
+}

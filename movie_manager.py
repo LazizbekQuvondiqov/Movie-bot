@@ -260,8 +260,8 @@ class MovieManager:
         except Exception as e:
             logger.error(f"Statistika olishda xatolik: {e}")
             return {"total_movies": 0, "total_views": 0, "popular_movies": []}
-
     def delete_movie(self, movie_id):
+        """Kinoni ID bo'yicha o'chirish"""
         try:
             data = self._load_data()
             movie_id_str = str(movie_id)
@@ -271,14 +271,15 @@ class MovieManager:
                 if self._save_data(data):
                     deleted_title = deleted_movie.get('title', 'Noma\'lum film')
                     logger.info(f"Film o'chirildi: ID {movie_id}, Nomi: {deleted_title}")
-                    return True
+                    return True, f"✅ '{deleted_title}' nomli kino (ID: {movie_id}) muvaffaqiyatli o'chirildi."
                 else:
                     # Agar saqlashda xatolik bo'lsa, filmni qaytarib qo'yamiz
                     data["movies"][movie_id_str] = deleted_movie
-                    return False
+                    return False, "❌ Kinoni o'chirishda ma'lumotlarni saqlashda xatolik yuz berdi."
             else:
                 logger.warning(f"O'chirish uchun film topilmadi: ID {movie_id}")
-                return False
+                return False, f"❌ ID si {movie_id} bo'lgan kino topilmadi."
         except Exception as e:
             logger.error(f"Film o'chirishda xatolik (ID: {movie_id}): {e}")
-            return False
+            return False, "❌ Kinoni o'chirishda kutilmagan xatolik yuz berdi."
+

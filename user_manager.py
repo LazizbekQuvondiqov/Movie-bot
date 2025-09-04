@@ -215,3 +215,22 @@ class UserManager:
         except Exception as e:
             logger.error(f"Broadcast foydalanuvchilarni olishda xatolik: {e}")
             return []
+    def find_user(self, query):
+        """Foydalanuvchini ID yoki username bo'yicha topish"""
+        try:
+            users = self.get_all_users()
+            query = str(query).lower().replace('@', '')
+
+            # Avval ID bo'yicha qidiramiz
+            if query.isdigit() and query in users:
+                return users[query]
+
+            # Keyin username bo'yicha qidiramiz
+            for user_data in users.values():
+                if user_data.get('username') and user_data['username'].lower() == query:
+                    return user_data
+
+            return None # Agar topilmasa
+        except Exception as e:
+            logger.error(f"Foydalanuvchini topishda xatolik: {e}")
+            return None
