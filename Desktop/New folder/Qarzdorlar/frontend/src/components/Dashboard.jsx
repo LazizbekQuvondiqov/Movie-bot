@@ -42,8 +42,8 @@ export default function Dashboard({ handleLogout }) {
     const fetchData = async () => {
       try {
         const [summaryRes, detailedRes] = await Promise.all([
-          axios.get('http://localhost:3001/api/debts/summary'),
-          axios.get('http://localhost:3001/api/debts/detailed')
+          axios.get(`${import.meta.env.VITE_API_URL}/debts/summary`),
+          axios.get(`${import.meta.env.VITE_API_URL}/debts/detailed`)
         ]);
         setSummaryData(summaryRes.data);
         setDetailedData(detailedRes.data);
@@ -125,7 +125,7 @@ export default function Dashboard({ handleLogout }) {
 
     setIsNotesLoading(true);
     try {
-        const res = await axios.get(`http://localhost:3001/api/notes/${customer['Mijoz ID']}`);
+        const res = await axios.get(`${import.meta.env.VITE_API_URL}/notes/${customer['Mijoz ID']}`);
         setNotes(res.data);
     } catch (error) {
         console.error("Izohlarni yuklashda xato:", error);
@@ -147,7 +147,7 @@ export default function Dashboard({ handleLogout }) {
     if (!newNote.trim()) return;
 
     try {
-        const response = await axios.post('http://localhost:3001/api/notes', {
+        const response = await axios.post(`${import.meta.env.VITE_API_URL}/notes`, {
             customer_id: selectedCustomer['Mijoz ID'],
             note_text: newNote
         });
@@ -179,7 +179,7 @@ export default function Dashboard({ handleLogout }) {
   const openUsersModal = async () => {
     setUserError(''); // Xatolikni tozalash
     try {
-        const response = await axios.get('http://localhost:3001/api/users');
+        const response = await axios.get(`${import.meta.env.VITE_API_URL}/users`);
         setUsers(response.data);
         setIsUsersModalOpen(true);
     } catch (error) {
@@ -193,7 +193,7 @@ export default function Dashboard({ handleLogout }) {
     e.preventDefault();
     setUserError('');
     try {
-        const response = await axios.post('http://localhost:3001/api/users', {
+        const response = await axios.post(`${import.meta.env.VITE_API_URL}/users`, {
             name: newUserName,
             phoneNumber: newUserPhone
         });
@@ -209,7 +209,7 @@ export default function Dashboard({ handleLogout }) {
   const handleDeleteUser = async (userId) => {
     if (window.confirm("Haqiqatan ham bu foydalanuvchini o'chirmoqchimisiz?")) {
         try {
-            await axios.delete(`http://localhost:3001/api/users/${userId}`);
+            await axios.delete(`${import.meta.env.VITE_API_URL}/users/${userId}`);
             setUsers(users.filter(user => user.id !== userId));
         } catch (error) {
             alert(error.response?.data?.message || "O'chirishda xatolik!");
@@ -407,9 +407,7 @@ export default function Dashboard({ handleLogout }) {
       )}
 
 
-  {/* ========================================================== */}
-  {/* FOYDALANUVCHILARNI BOSHQARISH UCHUN YANGI MODAL OYNA */}
-  {/* ========================================================== */}
+
   {isUsersModalOpen && (
     <div className="modal-overlay" onClick={() => setIsUsersModalOpen(false)}>
       <div className="modal-content" onClick={(e) => e.stopPropagation()}>
