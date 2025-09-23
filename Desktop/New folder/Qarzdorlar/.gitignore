@@ -1,0 +1,15 @@
+# Barcha node_modules papkalarini e'tiborsiz qoldirish
+**/node_modules
+
+# Maxfiy ma'lumotlar fayllari
+**/.env
+
+# SQLite ma'lumotlar bazasi fayli
+backend/qarzdorlar.sqlite
+
+# Vite tomonidan yaratiladigan `dist` papkasi
+frontend/dist
+
+# IDE va OS tomonidan yaratiladigan keraksiz fayllar
+.vscode/
+.DS_Store
