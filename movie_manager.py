@@ -139,44 +139,47 @@ class MovieManager:
             return False, "❌ Kinoni o'chirishda kutilmagan xatolik yuz berdi."
     # Bu funksiyalarni MovieManager klassi ichiga qo'shing
 
-def get_top_movies(self, limit=10):
-    """Eng ko'p ko'rilgan kinolarni olish"""
-    db: Session = next(self.get_db())
-    try:
-        return db.query(Movie).order_by(desc(Movie.views)).limit(limit).all()
-    except Exception as e:
-        logger.error(f"Top kinolarni olishda xatolik: {e}")
-        return []
+    # delete_movie funksiyasidan keyin shu kodni qo'shing
 
-def get_latest_movies(self, limit=10):
-    """Eng so'nggi qo'shilgan kinolarni olish"""
-    db: Session = next(self.get_db())
-    try:
-        return db.query(Movie).order_by(desc(Movie.added_date)).limit(limit).all()
-    except Exception as e:
-        logger.error(f"Yangi kinolarni olishda xatolik: {e}")
-        return []
+    def get_top_movies(self, limit=10):
+        """Eng ko'p ko'rilgan kinolarni olish"""
+        db: Session = next(self.get_db())
+        try:
+            return db.query(Movie).order_by(desc(Movie.views)).limit(limit).all()
+        except Exception as e:
+            logger.error(f"Top kinolarni olishda xatolik: {e}")
+            return []
 
-def get_all_genres(self):
-    """Barcha unikal janrlarni olish"""
-    db: Session = next(self.get_db())
-    try:
-        results = db.query(Movie.genres).filter(Movie.genres != None).all()
-        all_genres = set()
-        for (genre_str,) in results:
-            genres = [g.strip() for g in genre_str.split(',')]
-            all_genres.update(genres)
-        return sorted(list(all_genres))
-    except Exception as e:
-        logger.error(f"Janrlarni olishda xatolik: {e}")
-        return []
+    def get_latest_movies(self, limit=10):
+        """Eng so'nggi qo'shilgan kinolarni olish"""
+        db: Session = next(self.get_db())
+        try:
+            return db.query(Movie).order_by(desc(Movie.added_date)).limit(limit).all()
+        except Exception as e:
+            logger.error(f"Yangi kinolarni olishda xatolik: {e}")
+            return []
 
-def get_movies_by_genre(self, genre_name, limit=10):
-    """Ma'lum bir janrdagi kinolarni olish"""
-    db: Session = next(self.get_db())
-    try:
-        search_filter = f"%{genre_name}%"
-        return db.query(Movie).filter(Movie.genres.ilike(search_filter)).order_by(desc(Movie.views)).limit(limit).all()
-    except Exception as e:
-        logger.error(f"Janr bo'yicha kinolarni olishda xatolik: {e}")
-        return []
+    def get_all_genres(self):
+        """Barcha unikal janrlarni olish"""
+        db: Session = next(self.get_db())
+        try:
+            results = db.query(Movie.genres).filter(Movie.genres != None).distinct().all()
+            all_genres = set()
+            for (genre_str,) in results:
+                if genre_str:
+                    genres = [g.strip() for g in genre_str.split(',')]
+                    all_genres.update(genres)
+            return sorted(list(g for g in all_genres if g)) # Bo'sh janrlarni olib tashlash
+        except Exception as e:
+            logger.error(f"Janrlarni olishda xatolik: {e}")
+            return []
+
+    def get_movies_by_genre(self, genre_name, limit=10):
+        """Ma'lum bir janrdagi kinolarni olish"""
+        db: Session = next(self.get_db())
+        try:
+            search_filter = f"%{genre_name}%"
+            return db.query(Movie).filter(Movie.genres.ilike(search_filter)).order_by(desc(Movie.views)).limit(limit).all()
+        except Exception as e:
+            logger.error(f"Janr bo'yicha kinolarni olishda xatolik: {e}")
+            return []

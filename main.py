@@ -357,20 +357,6 @@ def inline_search(query):
 
 
 def generate_movie_list_text(movies, list_title):
-    """Kino ro'yxatini matn ko'rinishida formatlash"""
-    if not movies:
-        return f"Hozircha {list_title.lower()} topilmadi."
-
-    text = f"<b>{list_title}:</b>\n\n"
-    for i, (movie_id, data) in enumerate(movies.items(), 1):
-        title = data.get('title', 'Noma\'lum')
-        year = data.get('year', '')
-        rating = data.get('rating', 0.0)
-        text += f"<b>{i}. {title}</b> ({year}) - ⭐ {rating}\n"
-        text += f"Kinoni ko'rish uchun yuboring: <code>{movie_id}</code>\n\n"
-    return text
-
-def generate_movie_list_text(movies, list_title):
     """Kino ro'yxatini matn ko'rinishida formatlash (Movie obyektlari uchun)"""
     if not movies:
         return f"Hozircha {list_title.lower()} topilmadi."
@@ -381,22 +367,15 @@ def generate_movie_list_text(movies, list_title):
         text += f"Kinoni ko'rish uchun yuboring: <code>{movie.id}</code>\n\n"
     return text
 
-# Bu funksiyalar endi mavjud emas, chunki MovieManager o'zi saralab beradi.
-# @bot.message_handler(func=lambda msg: msg.text == KEYBOARD_TEXTS['top_movies']) ...
-# @bot.message_handler(func=lambda msg: msg.text == KEYBOARD_TEXTS['latest_movies']) ...
-# Bularni keyinroq, admin panelida to'g'ri joylashtiramiz. Hozircha bu tugmalarni alohida funksiya qilmasdan,
-# inline qidiruvga yo'naltirishimiz mumkin, yoki shunday qoldiramiz. Keling, soddalik uchun ularni
-# to'g'ridan-to'g'ri inline qidiruvni ochadigan qilamiz.
-@bot.message_handler(func=lambda msg: msg.text in [KEYBOARD_TEXTS['top_movies'], KEYBOARD_TEXTS['latest_movies'], KEYBOARD_TEXTS['genres']])
 @bot.message_handler(func=lambda msg: msg.text == KEYBOARD_TEXTS['top_movies'])
 def handle_top_movies(message):
     """Eng ommabop kinolar ro'yxatini yuborish"""
     user_id = message.from_user.id
     if not is_user_member(user_id):
-        # ... (membership check kodini takrorlamaslik uchun qisqa qoldirdim, u baribir ishlaydi)
         send_movie(user_id, -1) # Bu membership xabarini chiqaradi
         return
 
+    bot.send_chat_action(user_id, 'typing')
     top_movies = movie_manager.get_top_movies(limit=10)
     text = generate_movie_list_text(top_movies, "🏆 Eng Ommabop 10 Kino")
     bot.send_message(user_id, text, parse_mode='HTML')
@@ -409,6 +388,7 @@ def handle_latest_movies(message):
         send_movie(user_id, -1)
         return
 
+    bot.send_chat_action(user_id, 'typing')
     latest_movies = movie_manager.get_latest_movies(limit=10)
     text = generate_movie_list_text(latest_movies, "✨ Eng So'nggi Qo'shilgan Kinolar")
     bot.send_message(user_id, text, parse_mode='HTML')
@@ -421,6 +401,7 @@ def handle_genres(message):
         send_movie(user_id, -1)
         return
 
+    bot.send_chat_action(user_id, 'typing')
     genres = movie_manager.get_all_genres()
     if not genres:
         return bot.send_message(user_id, "Hozircha janrlar mavjud emas.")
@@ -437,14 +418,15 @@ def handle_genre_selection(call):
         bot.answer_callback_query(call.id)
         selected_genre = call.data.split('_', 1)[1]
 
+        bot.send_chat_action(call.message.chat.id, 'typing')
         genre_movies = movie_manager.get_movies_by_genre(selected_genre, limit=10)
         text = generate_movie_list_text(genre_movies, f"🎭 {selected_genre} Janridagi Kinolar (Top 10)")
 
-        # Eski "Janrni tanlang" xabarini o'chirib, yangi ro'yxatni yuboramiz
         bot.delete_message(call.message.chat.id, call.message.message_id)
         bot.send_message(call.message.chat.id, text, parse_mode='HTML')
     except Exception as e:
         logger.error(f"Janr bo'yicha kinolarni ko'rsatishda xatolik: {e}")
+
 @bot.message_handler(func=lambda msg: msg.text and (msg.text.startswith(KEYBOARD_TEXTS['premium'])))
 def handle_premium(message):
     try:
