@@ -364,20 +364,27 @@ def inline_search(query):
     try:
         user_id = query.from_user.id
         if not is_user_member(user_id):
-            # Bu qismni qisqartiramiz, chunki foydalanuvchi botga o'tib, baribir /start bosadi
-            bot.answer_inline_query(query.id, [], switch_pm_text="Botdan foydalanish uchun kanallarga obuna bo'ling", switch_pm_parameter="subscribe")
+            bot.answer_inline_query(query.id, [],
+                                    switch_pm_text="Botdan foydalanish uchun kanallarga obuna bo'ling",
+                                    switch_pm_parameter="subscribe")
             return
 
         search_query = query.query.strip().lower()
-        movies = movie_manager.search_movies(search_query) # Bu endi Movie obyektlari ro'yxatini qaytaradi
+
+        # Telegramdan kelayotgan offsetni olish
+        try:
+            # Offset bo'sh yoki mavjud bo'lmasligi mumkin
+            offset = int(query.offset) if query.offset else 0
+        except ValueError:
+            offset = 0
+
+        limit = 50 # Telegram cheklovi
+
+        # Yangilangan funksiyani chaqirish
+        movies = movie_manager.search_movies(search_query, limit=limit, offset=offset)
 
         results = []
-        if not movies:
-            # Film topilmaganda ham switch_pm_text taklif qilamiz
-            bot.answer_inline_query(query.id, [], switch_pm_text=f"'{search_query}' topilmadi. Boshqa nom bilan qidiring.", switch_pm_parameter="search")
-            return
-
-        for movie in movies[:50]: # Telegram inline uchun limit 50 ta
+        for movie in movies:
             description = f"⭐ {movie.rating or 'N/A'} | 📅 {movie.year or 'N/A'} | 👁 {movie.views or 0}"
             result = types.InlineQueryResultArticle(
                 id=str(movie.id),
@@ -388,11 +395,19 @@ def inline_search(query):
             )
             results.append(result)
 
-        bot.answer_inline_query(query.id, results, cache_time=10) # Cache vaqtini qisqartiramiz
+        # <<< "CHEKSIZ AYLANTIRISH" MANTIG'I >>>
+        next_offset = ""
+        # Agar bu safar topilgan natijalar soni limitga teng bo'lsa,
+        # demak, keyingi sahifada yana kinolar bo'lishi mumkin.
+        if len(results) == limit:
+            next_offset = str(offset + limit)
+
+        bot.answer_inline_query(query.id, results,
+                                cache_time=5,
+                                next_offset=next_offset) # <<< ENG MUHIM PARAMETR
+
     except Exception as e:
         logger.error(f"Inline qidiruvda kutilmagan xatolik: {e}", exc_info=True)
-
-
 
 def generate_movie_list_text(movies, list_title):
     """Kino ro'yxatini matn ko'rinishida formatlash (Movie obyektlari uchun)"""

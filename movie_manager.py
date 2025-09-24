@@ -90,32 +90,41 @@ class MovieManager:
             logger.error(f"Barcha filmlarni olishda xatolik: {e}")
             return []
 
-    def search_movies(self, query: str, limit=50):
+    def search_movies(self, query: str, limit: int = 50, offset: int = 0):
+        """
+        Kinolarni qidirish (sahifalash bilan).
+        limit: bitta sahifadagi natijalar soni.
+        offset: nechanchi natijadan boshlab qidirish kerakligi.
+        """
         db: Session = next(self.get_db())
         try:
             query = query.lower().strip()
-            if not query:
-                return self.get_all_movies(limit=limit)
 
-            # ID bo'yicha qidirish
-            if query.isdigit():
+            # ID bo'yicha qidirish (bu sahifalashga bog'liq emas)
+            if query.isdigit() and offset == 0: # Faqat birinchi sahifada ID qidiramiz
                 movie_by_id = db.query(Movie).filter(Movie.id == int(query)).first()
                 if movie_by_id:
                     return [movie_by_id]
 
-            # Matn bo'yicha qidirish
-            search_filter = f"%{query}%"
-            results = db.query(Movie).filter(
-                (Movie.title.ilike(search_filter)) |
-                (Movie.original_title.ilike(search_filter))
-            ).order_by(desc(Movie.added_date)).limit(limit).all()
+            # Umumiy so'rovni tayyorlash
+            search_query = db.query(Movie)
 
-            logger.debug(f"Qidiruv natijasi: {len(results)} film topildi")
+            # Matn bo'yicha filtrlash (agar qidiruv so'zi bo'lsa)
+            if query:
+                search_filter = f"%{query}%"
+                search_query = search_query.filter(
+                    (Movie.title.ilike(search_filter)) |
+                    (Movie.original_title.ilike(search_filter))
+                )
+
+            # Natijalarni saralash, sahifalash va olish
+            results = search_query.order_by(desc(Movie.added_date)).offset(offset).limit(limit).all()
+
+            logger.debug(f"Qidiruv natijasi: {len(results)} film topildi (offset: {offset}, limit: {limit})")
             return results
         except Exception as e:
             logger.error(f"Qidirishda xatolik: {e}")
             return []
-
     def get_stats(self):
         db: Session = next(self.get_db())
         try:
