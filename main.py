@@ -4,7 +4,7 @@ import logging
 import time
 import os
 from datetime import datetime
-# ...
+from database import Payment, SessionLocal # Fayl boshida import qilinganiga ishonch hosil qiling
 from broadcast_manager import BroadcastManager
 from tmdb_handler import TMDBHandler
 from favorites_manager import FavoritesManager # <<< YANGI QATOR
@@ -878,23 +878,32 @@ def handle_admin_payment_decision(call):
         action = parts[0]
         payment_id = int(parts[2])
 
-        db = next(payment_manager.get_db())
-        payment = db.query(Payment).get(payment_id)
-        if not payment:
-            bot.answer_callback_query(call.id, "❌ To'lov topilmadi yoki allaqachon ko'rib chiqilgan!", show_alert=True)
-            bot.edit_message_caption(call.message.caption + "\n\n⚠️ <b>Xatolik:</b> To'lov topilmadi.", call.message.chat.id, call.message.message_id, parse_mode='HTML')
-            return
+        # To'g'ridan-to'g'ri SessionLocal'dan foydalanamiz
+        with SessionLocal() as db:
+            payment = db.query(Payment).get(payment_id)
+            if not payment:
+                bot.answer_callback_query(call.id, "❌ To'lov topilmadi yoki allaqachon ko'rib chiqilgan!", show_alert=True)
+                try:
+                    bot.edit_message_caption(call.message.caption + "\n\n⚠️ <b>Xatolik:</b> To'lov topilmadi.", call.message.chat.id, call.message.message_id, parse_mode='HTML')
+                except Exception:
+                    pass # Agar caption'ni o'zgartirib bo'lmasa, indamaymiz
+                return
 
-        user_id = payment.user_id
+            # user_id ni olamiz, chunki keyingi manager funksiyalari sessiyani yopib qo'yishi mumkin
+            user_id = payment.user_id
 
+        # Endi manager funksiyalarini chaqiramiz
         if action == 'approve':
             success, message = payment_manager.approve_payment(payment_id)
             if success:
                 bot.answer_callback_query(call.id, "✅ To'lov tasdiqlandi!")
 
+                # Bu yerda premium_info ni olish uchun alohida so'rov kerak bo'ladi,
+                # chunki manager'lar o'z sessiyalarini ochib-yopishadi.
                 premium_info = payment_manager.get_premium_info(user_id)
-                user_text = PREMIUM_SUCCESS_MESSAGE.format(expire_date=premium_info.expire_date.strftime('%d.%m.%Y'))
-                bot.send_message(user_id, user_text, parse_mode='HTML')
+                if premium_info:
+                    user_text = PREMIUM_SUCCESS_MESSAGE.format(expire_date=premium_info.expire_date.strftime('%d.%m.%Y'))
+                    bot.send_message(user_id, user_text, parse_mode='HTML')
 
                 new_caption = f"{call.message.caption}\n\n✅ <b>TASDIQLANDI</b> by @{call.from_user.username or call.from_user.first_name}"
                 bot.edit_message_caption(new_caption, call.message.chat.id, call.message.message_id, parse_mode='HTML', reply_markup=None)
@@ -915,7 +924,6 @@ def handle_admin_payment_decision(call):
     except Exception as e:
         logger.error(f"Admin to'lov qarorida xatolik: {e}", exc_info=True)
         bot.answer_callback_query(call.id, "Kritik xatolik yuz berdi!", show_alert=True)
-
 
 # ... handle_admin_payment_decision dan keyin qo'shing ...
 
