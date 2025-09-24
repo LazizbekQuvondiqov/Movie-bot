@@ -29,7 +29,7 @@ PAYMENT_CARD_INFO = {
 }
 
 # Fayl yo'llari
-# DATA_DIR = "data"
+DATA_DIR = "data"
 # MOVIES_DATA_FILE = os.path.join(DATA_DIR, "movies.json")
 # USERS_DATA_FILE = os.path.join(DATA_DIR, "users.json")
 # CHANNELS_FILE = os.path.join(DATA_DIR, "channels.json")

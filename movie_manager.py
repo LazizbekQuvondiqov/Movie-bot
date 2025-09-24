@@ -57,6 +57,14 @@ class MovieManager:
         except Exception as e:
             logger.error(f"Film olishda xatolik (ID: {movie_id}): {e}")
             return None
+    def get_movie_by_file_id(self, file_id: str):
+      """Filmni unikal file_id bo'yicha bazadan qidirish"""
+      db: Session = next(self.get_db())
+      try:
+        return db.query(Movie).filter(Movie.file_id == file_id).first()
+      except Exception as e:
+        logger.error(f"File ID bo'yicha film olishda xatolik: {e}")
+        return None
 
     def update_views(self, movie_id: int):
         db: Session = next(self.get_db())

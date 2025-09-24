@@ -4,6 +4,10 @@ import logging
 import time
 import os
 from datetime import datetime
+# ...
+from broadcast_manager import BroadcastManager
+from tmdb_handler import TMDBHandler
+from favorites_manager import FavoritesManager # <<< YANGI QATOR
 
 # --- Konfiguratsiya va Managerlarni import qilish ---
 from config import (
@@ -71,8 +75,9 @@ channel_manager = ChannelManager()
 payment_manager = PaymentManager()
 broadcast_manager = BroadcastManager()
 tmdb_handler = TMDBHandler()
+favorites_manager = FavoritesManager() # <<< YANGI QATOR
 
-DEFAULT_POSTER_URL = "https://encrypted-tbn0.gstatic.com/images?q=tbn:ANd9GcTVQlpdEJw8JCwIhv8s33VI2LojHEbbvdOc5w&s"
+DEFAULT_POSTER_URL = "https://static6.tgstat.ru/channels/_0/e7/e784ac572ebd86f1e52232e1697a8c81.jpg"
 def is_user_member(user_id):
     """Foydalanuvchi kanalga a'zo yoki premium ekanligini tekshirish"""
     try:
@@ -120,13 +125,15 @@ def get_main_keyboard(user_id):
         types.KeyboardButton(KEYBOARD_TEXTS['top_movies']),
         types.KeyboardButton(KEYBOARD_TEXTS['latest_movies'])
     )
-    premium_text = KEYBOARD_TEXTS['premium'] + (" ✅" if payment_manager.is_premium_user(user_id) else "")
-    keyboard.add(types.KeyboardButton(premium_text))
+    # <<< YANGI QATORLAR SHU YERDA >>>
+    favorites_btn = types.KeyboardButton("❤️ Tanlanganlarim")
+    premium_btn = types.KeyboardButton(KEYBOARD_TEXTS['premium'] + (" ✅" if payment_manager.is_premium_user(user_id) else ""))
+    keyboard.add(favorites_btn, premium_btn) # Premium bilan bir qatorda
+    # <<< O'ZGARISH TUGADI >>>
 
     if user_id in ADMIN_IDS:
         keyboard.add(types.KeyboardButton(KEYBOARD_TEXTS['admin']))
     return keyboard
-
 def get_admin_keyboard():
     """Admin paneli klaviaturasi"""
     keyboard = types.ReplyKeyboardMarkup(resize_keyboard=True, row_width=2)
@@ -170,10 +177,28 @@ def generate_movie_caption(movie):
     caption += f"\n🔢 Kod: {movie.id}\n👁 Ko'rishlar: {movie.views}\n\n✅ @{BOT_USERNAME.replace('@','')} | Filmlar olami 🍿"
     return caption
 
+# Eski send_movie funksiyasini O'CHIRIB, buni qo'ying
+
 def send_movie(chat_id, movie_id):
-    """Film yuborish logikasi"""
+    """Film yuborish logikasi (Tanlanganlar tugmasi bilan)"""
     try:
-        user_manager.add_user(chat_id) # Aktivlikni yangilash uchun
+        # Foydalanuvchi mavjudligini tekshirish va aktivligini yangilash
+        # Biz user_manager.add_user() ni ishlatmaymiz, chunki u keraksiz yangilanishlar qilishi mumkin.
+        # Buning o'rniga, user_managerga yangi, sodda funksiya qo'shishimiz mumkin, lekin hozircha bu shart emas.
+        # Agar foydalanuvchi biror harakat qilsa, u allaqachon bazada bo'ladi.
+
+        # -1 ID maxsus holat, majburiy a'zolik xabarini chiqarish uchun
+        if movie_id == -1:
+             prices = payment_manager.get_prices()
+             text = MEMBERSHIP_REQUIRED_MESSAGE.format(
+                channels="\n".join([f"📢 {ch.name}" for ch in channel_manager.get_channel_list_for_check()]),
+                week_price=prices['week'],
+                month_price=prices['month'],
+                year_price=prices['year']
+             )
+             bot.send_message(chat_id, text, reply_markup=get_subscription_keyboard(), parse_mode='HTML')
+             return
+
         if not is_user_member(chat_id):
             prices = payment_manager.get_prices()
             text = MEMBERSHIP_REQUIRED_MESSAGE.format(
@@ -190,24 +215,37 @@ def send_movie(chat_id, movie_id):
             bot.send_message(chat_id, MOVIE_NOT_FOUND_FOR_USER.format(username=BOT_USERNAME.replace('@', '')), parse_mode='HTML')
             return
 
-        # Ko'rishlar sonini yangilashdan oldin obyektdagi joriy qiymatni olamiz
-        current_views = movie.views
-        movie_manager.update_views(movie_id)
-        movie.views = current_views + 1 # Lokal obyektni ham yangilab qo'yamiz
-
+        # Ko'rishlar sonini yangilash
+        new_views = movie_manager.update_views(movie_id)
+        movie.views = new_views # Obyektni ham yangilab qo'yamiz
         user_manager.increment_movie_watch(chat_id)
+
+        # Caption va tugmalarni tayyorlash
         caption = generate_movie_caption(movie)
 
-        keyboard = types.InlineKeyboardMarkup([
-            [types.InlineKeyboardButton("↪️ Ulashish", switch_inline_query=movie.title)],
-            [types.InlineKeyboardButton("🔎 Boshqa kinolarni qidirish", switch_inline_query_current_chat="")]
-        ])
+        # <<< TUGMALAR BLOKI SHU YERDA YANGILANDI >>>
+        is_favorite = favorites_manager.is_in_favorites(chat_id, movie_id)
+        favorite_text = "💔 Sevimlilardan olib tashlash" if is_favorite else "❤️ Sevimlilarga qo'shish"
+
+        keyboard = types.InlineKeyboardMarkup(row_width=2) # row_width=2 qildik
+
+        # Birinchi qator: Sevimlilar tugmasi
+        keyboard.add(types.InlineKeyboardButton(favorite_text, callback_data=f"fav_{movie_id}"))
+
+        # Ikkinchi qator: Ulashish va Qidirish tugmalari
+        keyboard.add(
+            types.InlineKeyboardButton("↪️ Ulashish", switch_inline_query=movie.title),
+            types.InlineKeyboardButton("🔎 Boshqa kinolar", switch_inline_query_current_chat="")
+        )
+        # <<< O'ZGARISH TUGADI >>>
 
         bot.send_video(chat_id, movie.file_id, caption=caption, parse_mode='HTML', reply_markup=keyboard, protect_content=True)
         logger.info(f"Film yuborildi: ID {movie_id}, Chat ID {chat_id}")
+
     except Exception as e:
-        logger.error(f"Video yuborishda xatolik: {e}")
-        bot.send_message(chat_id, "❌ Video yuborishda xatolik yuz berdi.")
+        logger.error(f"Video yuborishda xatolik (movie_id: {movie_id}): {e}", exc_info=True)
+        bot.send_message(chat_id, "❌ Video yuborishda kutilmagan xatolik yuz berdi.")
+
 def send_broadcast_message(user_id, from_chat_id, message_id, reply_markup=None):
     """Universal ommaviy xabar yuborish funksiyasi"""
     try:
@@ -813,7 +851,6 @@ def handle_admin_settings_callbacks(call):
     except Exception as e:
         logger.error(f"Admin sozlamalari callback xatoligi: {e}")
 
-# Eski handle_admin_payment_decision ni O'CHIRIB, buni qo'ying
 
 @bot.callback_query_handler(func=lambda call: call.data.startswith(('approve_payment_', 'reject_payment_')))
 def handle_admin_payment_decision(call):
@@ -863,6 +900,69 @@ def handle_admin_payment_decision(call):
     except Exception as e:
         logger.error(f"Admin to'lov qarorida xatolik: {e}", exc_info=True)
         bot.answer_callback_query(call.id, "Kritik xatolik yuz berdi!", show_alert=True)
+
+
+# ... handle_admin_payment_decision dan keyin qo'shing ...
+
+@bot.callback_query_handler(func=lambda call: call.data.startswith('fav_'))
+def handle_toggle_favorite(call):
+    """Kino ostidagi sevimlilar tugmasini bosishni boshqarish"""
+    try:
+        user_id = call.from_user.id
+        movie_id = int(call.data.split('_')[1])
+
+        # Sevimlilarga qo'shish/olib tashlash
+        action_is_add = favorites_manager.toggle_favorite(user_id, movie_id)
+
+        # Tugmani yangilash
+        favorite_text = "💔 Olib tashlash" if action_is_add else "❤️ Sevimlilarga qo'shish"
+
+        # Xabardagi barcha tugmalarni qayta chizamiz
+        keyboard = types.InlineKeyboardMarkup()
+        keyboard.add(types.InlineKeyboardButton(favorite_text, callback_data=f"fav_{movie_id}"))
+        # Eski ulashish va qidirish tugmalarini ham qo'shamiz
+        # Bu yerda biz kino nomini bilmaymiz, shuning uchun soddaroq qilamiz
+        # Yaxshiroq usul - kino nomini callback_data ga qo'shish, lekin hozircha shunday qoldiramiz
+        keyboard.add(
+            types.InlineKeyboardButton("↪️ Ulashish", switch_inline_query=""),
+            types.InlineKeyboardButton("🔎 Boshqa kinolar", switch_inline_query_current_chat="")
+        )
+
+        bot.edit_message_reply_markup(call.message.chat.id, call.message.message_id, reply_markup=keyboard)
+
+        alert_text = "✅ Sevimlilarga qo'shildi!" if action_is_add else "🗑️ Sevimlilardan olib tashlandi."
+        bot.answer_callback_query(call.id, alert_text)
+
+    except Exception as e:
+        logger.error(f"Sevimlilarni o'zgartirishda xatolik: {e}")
+        bot.answer_callback_query(call.id, "❌ Xatolik yuz berdi!")
+
+
+@bot.message_handler(func=lambda msg: msg.text == "❤️ Tanlanganlarim")
+def handle_show_favorites(message):
+    """Sevimlilar ro'yxatini ko'rsatish"""
+    user_id = message.from_user.id
+    bot.send_chat_action(user_id, 'typing')
+
+    favorite_ids = favorites_manager.get_user_favorites(user_id)
+
+    if not favorite_ids:
+        return bot.send_message(user_id, "Sizda hali sevimlilarga qo'shilgan kinolar yo'q.")
+
+    text = "❤️ <b>Sizning tanlangan kinolaringiz:</b>\n\n"
+
+    # Har bir kino ma'lumotini bazadan olamiz
+    for i, movie_id in enumerate(favorite_ids, 1):
+        movie = movie_manager.get_movie(movie_id)
+        if movie:
+            text += f"<b>{i}. {movie.title}</b> ({movie.year or 'N/A'})\n"
+            text += f"Ko'rish uchun kod: <code>{movie.id}</code>\n\n"
+        else:
+            # Agar kino bazadan o'chirilgan bo'lsa
+            text += f"<b>{i}.</b> <i>(Bu kino o'chirilgan)</i>\n\n"
+
+    bot.send_message(user_id, text, parse_mode='HTML')
+
 def get_channels_management_keyboard():
     """Kanallarni boshqarish uchun inline klaviatura"""
     keyboard = types.InlineKeyboardMarkup(row_width=2)
