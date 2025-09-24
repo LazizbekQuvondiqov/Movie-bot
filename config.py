@@ -8,8 +8,7 @@ BOT_TOKEN = os.getenv("BOT_TOKEN")
 # >>>>>>>>>>>>>>>>>>>> TUZATISH: Endi bu matn sifatida olinadi <<<<<<<<<<<<<<<<<<<<<<<
 ADMIN_CHAT_ID = os.getenv("ADMIN_CHAT_ID", "0")
 BOT_USERNAME = os.getenv("BOT_USERNAME", "KinoBot")
-PRIVATE_CHANNEL_ID = int(os.getenv("PRIVATE_CHANNEL_ID", "0"))
-
+PRIVATE_CHANNEL_ID = os.getenv("PRIVATE_CHANNEL_ID", "0")
 # TMDB API
 TMDB_API_KEY = os.getenv("TMDB_API_KEY")
 TMDB_BASE_URL = "https://api.themoviedb.org/3"
