@@ -40,13 +40,19 @@ class FavoritesManager:
                 logger.error(f"Sevimlilarni tekshirishda xatolik: {e}")
                 return False
 
+# favorites_manager.py faylida FAQAT SHU FUNKSIYANI ALMASHTIRING
+
     def get_user_favorites(self, user_id: int):
         """Foydalanuvchining barcha sevimlilari ro'yxatini (kino IDlari) olish"""
         with SessionLocal() as db:
             try:
-                # .all() o'rniga .scalars().all() dan foydalanish to'g'ridan-to'g'ri qiymatlar ro'yxatini beradi
-                favs_ids = db.query(Favorite.movie_id).filter_by(user_id=user_id).order_by(Favorite.added_date.desc()).scalars().all()
-                return favs_ids
+                # Klassik va 100% ishonchli usul:
+                # Bu so'rov bazadan [(6,), (8,)] kabi natija qaytaradi
+                favs_tuples = db.query(Favorite.movie_id).filter_by(user_id=user_id).order_by(Favorite.added_date.desc()).all()
+
+                # Endi biz bu natijani oddiy ro'yxatga [6, 8] aylantiramiz
+                return [fav[0] for fav in favs_tuples]
+
             except Exception as e:
                 logger.error(f"Sevimlilar ro'yxatini olishda xatolik: {e}")
                 return []
