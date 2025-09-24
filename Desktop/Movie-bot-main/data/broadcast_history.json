@@ -1,0 +1,17 @@
+{
+  "broadcasts": {
+    "1756754193022": {
+      "id": 1756754193022,
+      "admin_id": 1205534758,
+      "admin_username": "Laz1zbek_Quvond1qov",
+      "content_type": "text",
+      "start_time": "2025-09-02T00:16:33.022414",
+      "total_users": 1,
+      "success_count": 1,
+      "failed_count": 0,
+      "status": "completed",
+      "content_preview": "salom",
+      "end_time": "2025-09-02T00:16:33.538134"
+    }
+  }
+}
