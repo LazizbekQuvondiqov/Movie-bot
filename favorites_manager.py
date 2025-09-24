@@ -1,92 +1,52 @@
-# favorites_manager.py
-import json
-import os
+# favorites_manager.py (YANGI va TO'G'RI KOD)
 import logging
-from threading import Lock
-from config import DATA_DIR # config.py dan DATA_DIR ni import qilamiz
+from database import Favorite, SessionLocal
 
 logger = logging.getLogger(__name__)
 
-# Fayl yo'lini aniqlash
-FAVORITES_FILE = os.path.join(DATA_DIR, "favorites.json")
-
 class FavoritesManager:
-    def __init__(self):
-        self.file_path = FAVORITES_FILE
-        self.lock = Lock()
-        self._ensure_file_exists()
-
-    def _ensure_file_exists(self):
-        """Fayl mavjudligini tekshirish va kerak bo'lsa yaratish"""
-        try:
-            os.makedirs(DATA_DIR, exist_ok=True)
-            if not os.path.exists(self.file_path):
-                with open(self.file_path, 'w', encoding='utf-8') as f:
-                    json.dump({}, f) # Boshlang'ich ma'lumot - bo'sh lug'at
-                logger.info(f"Sevimlilar fayli yaratildi: {self.file_path}")
-        except Exception as e:
-            logger.error(f"Sevimlilar faylini yaratishda xatolik: {e}")
-
-    def _load_data(self):
-        """Fayldan ma'lumotlarni o'qish"""
-        with self.lock:
+    def toggle_favorite(self, user_id: int, movie_id: int):
+        """Kinoni sevimlilarga qo'shadi yoki olib tashlaydi."""
+        with SessionLocal() as db:
             try:
-                with open(self.file_path, 'r', encoding='utf-8') as f:
-                    return json.load(f)
-            except (json.JSONDecodeError, FileNotFoundError):
-                return {} # Agar fayl bo'sh yoki xato bo'lsa, bo'sh lug'at qaytaramiz
+                existing_fav = db.query(Favorite).filter_by(user_id=user_id, movie_id=movie_id).first()
 
-    def _save_data(self, data):
-        """Ma'lumotlarni faylga saqlash"""
-        with self.lock:
-            try:
-                temp_file = f"{self.file_path}.tmp"
-                with open(temp_file, 'w', encoding='utf-8') as f:
-                    json.dump(data, f, indent=2, ensure_ascii=False)
-                os.replace(temp_file, self.file_path)
-                return True
+                if existing_fav:
+                    # Agar mavjud bo'lsa, o'chiramiz
+                    db.delete(existing_fav)
+                    db.commit()
+                    logger.info(f"Foydalanuvchi {user_id} sevimlilaridan kinoni ({movie_id}) olib tashladi.")
+                    return False # Olib tashlandi
+                else:
+                    # Agar yo'q bo'lsa, qo'shamiz
+                    new_fav = Favorite(user_id=user_id, movie_id=movie_id)
+                    db.add(new_fav)
+                    db.commit()
+                    logger.info(f"Foydalanuvchi {user_id} sevimlilariga kinoni ({movie_id}) qo'shdi.")
+                    return True # Qo'shildi
             except Exception as e:
-                logger.error(f"Sevimlilar ma'lumotini saqlashda xatolik: {e}")
+                db.rollback()
+                logger.error(f"Sevimlilarni o'zgartirishda xatolik: {e}")
+                raise e # Xatolikni yuqoriga uzatamiz, bu botda aniqroq xabar berishga yordam beradi
+
+    def is_in_favorites(self, user_id: int, movie_id: int):
+        """Kino sevimlilarda bor-yo'qligini tekshirish"""
+        with SessionLocal() as db:
+            try:
+                # .exists() va .scalar() dan foydalanish .first() ga qaraganda samaraliroq
+                is_exists = db.query(db.query(Favorite).filter_by(user_id=user_id, movie_id=movie_id).exists()).scalar()
+                return is_exists
+            except Exception as e:
+                logger.error(f"Sevimlilarni tekshirishda xatolik: {e}")
                 return False
 
-    def toggle_favorite(self, user_id, movie_id):
-        """
-        Kinoni sevimlilarga qo'shadi yoki olib tashlaydi.
-        Returns: True (qo'shildi), False (olib tashlandi).
-        """
-        user_id_str = str(user_id)
-        movie_id_int = int(movie_id)
-
-        data = self._load_data()
-
-        # Foydalanuvchi uchun ro'yxatni olish yoki yaratish
-        user_favorites = data.get(user_id_str, [])
-
-        if movie_id_int in user_favorites:
-            # Agar kino allaqachon sevimlilarda bo'lsa, olib tashlaymiz
-            user_favorites.remove(movie_id_int)
-            action_is_add = False
-            logger.info(f"Foydalanuvchi {user_id} sevimlilaridan kinoni ({movie_id}) olib tashladi.")
-        else:
-            # Aks holda, qo'shamiz
-            user_favorites.append(movie_id_int)
-            action_is_add = True
-            logger.info(f"Foydalanuvchi {user_id} sevimlilariga kinoni ({movie_id}) qo'shdi.")
-
-        data[user_id_str] = user_favorites
-        self._save_data(data)
-        return action_is_add
-
-    def is_in_favorites(self, user_id, movie_id):
-        """Kino sevimlilarda bor-yo'qligini tekshirish"""
-        user_id_str = str(user_id)
-        movie_id_int = int(movie_id)
-
-        data = self._load_data()
-        return movie_id_int in data.get(user_id_str, [])
-
-    def get_user_favorites(self, user_id):
+    def get_user_favorites(self, user_id: int):
         """Foydalanuvchining barcha sevimlilari ro'yxatini (kino IDlari) olish"""
-        user_id_str = str(user_id)
-        data = self._load_data()
-        return data.get(user_id_str, [])
+        with SessionLocal() as db:
+            try:
+                # .all() o'rniga .scalars().all() dan foydalanish to'g'ridan-to'g'ri qiymatlar ro'yxatini beradi
+                favs_ids = db.query(Favorite.movie_id).filter_by(user_id=user_id).order_by(Favorite.added_date.desc()).scalars().all()
+                return favs_ids
+            except Exception as e:
+                logger.error(f"Sevimlilar ro'yxatini olishda xatolik: {e}")
+                return []

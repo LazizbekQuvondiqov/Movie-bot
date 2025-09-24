@@ -94,3 +94,8 @@ def init_db():
     """Ma'lumotlar bazasi jadvallarini yaratish"""
     Base.metadata.create_all(bind=engine)
     print("Ma'lumotlar bazasi jadvallari yaratildi yoki mavjud.")
+class Favorite(Base):
+    __tablename__ = "favorites"
+    user_id = Column(BigInteger, ForeignKey('users.user_id'), primary_key=True)
+    movie_id = Column(Integer, ForeignKey('movies.id'), primary_key=True)
+    added_date = Column(DateTime, default=datetime.utcnow)
