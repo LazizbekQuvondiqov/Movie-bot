@@ -1,0 +1,15 @@
+{
+  "channels": {
+    "prezident_al_xorazmiy_maktabi": {
+      "username": "prezident_al_xorazmiy_maktabi",
+      "url": "https://t.me/prezident_al_xorazmiy_maktabi",
+      "name": "@prezident_al_xorazmiy_maktabi",
+      "added_date": "2025-09-04T17:09:14.392659",
+      "is_active": true
+    }
+  },
+  "settings": {
+    "check_membership": true,
+    "premium_bypass": true
+  }
+}

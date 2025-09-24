@@ -1,0 +1,26 @@
+{
+  "users": {
+    "1205534758": {
+      "user_id": 1205534758,
+      "username": "Laz1zbek_Quvond1qov",
+      "first_name": "Lazizbek",
+      "last_name": "Quvondiqov",
+      "joined_date": "2025-09-02T18:41:35.175054",
+      "last_seen": "2025-09-04T17:27:38.531593",
+      "is_banned": false,
+      "message_count": 20,
+      "movies_watched": 2
+    },
+    "8081878196": {
+      "user_id": 8081878196,
+      "username": "analitik_indress",
+      "first_name": "Indress",
+      "last_name": "Analitik",
+      "joined_date": "2025-09-04T17:10:07.599427",
+      "last_seen": "2025-09-04T17:11:07.396824",
+      "is_banned": false,
+      "message_count": 2,
+      "movies_watched": 0
+    }
+  }
+}
