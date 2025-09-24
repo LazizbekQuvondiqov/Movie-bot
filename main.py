@@ -686,6 +686,8 @@ def handle_premium_purchase(call):
     except Exception as e:
         logger.error(f"Premium sotib olishda xatolik: {e}")
 
+# Eski handle_payment_confirmation ni O'CHIRIB, buni qo'ying
+
 @bot.callback_query_handler(func=lambda call: call.data.startswith('paid_'))
 def handle_payment_confirmation(call):
     try:
@@ -693,85 +695,55 @@ def handle_payment_confirmation(call):
         user_id = call.from_user.id
         parts = call.data.split('_')
 
-        # DEBUG: parts ni tekshirish
-        print(f"DEBUG: Paid callback parts: {parts}")
-
+        # Callback ma'lumotlarini tekshirish
         if len(parts) != 3:
-            print(f"DEBUG: Paid callback noto'g'ri format: {call.data}")
-            bot.edit_message_text("❌ Xatolik yuz berdi. Qaytadan urinib ko'ring.", call.message.chat.id, call.message.message_id)
+            bot.edit_message_text("❌ Xatolik yuz berdi. Iltimos, /start buyrug'i bilan qaytadan boshlang.", call.message.chat.id, call.message.message_id)
             return
 
         plan_type, amount = parts[1], int(parts[2])
 
-        # State ni to'g'ri formatda saqlash
-        state = f'payment_screenshot_{plan_type}_{amount}'
-        user_states[user_id] = state
-
-        print(f"DEBUG: User {user_id} uchun state saqlandi: {state}")
-        print(f"DEBUG: Barcha user_states: {user_states}")
+        # <<< MUHIM TUZATISH: State'dagi _ belgisini olib tashlaymiz >>>
+        user_states[user_id] = f'paymentscreenshot_{plan_type}_{amount}'
 
         text = "📸 To'lov chekini rasm (screenshot) yoki PDF formatda yuboring."
         bot.edit_message_text(text, call.message.chat.id, call.message.message_id)
+        logger.info(f"Foydalanuvchi {user_id} uchun 'paymentscreenshot' holati o'rnatildi.")
 
     except Exception as e:
-        logger.error(f"To'lov tasdiqlashda xatolik: {e}")
-        print(f"DEBUG: Payment confirmation error: {e}")
-
+        logger.error(f"To'lov tasdiqlashda xatolik: {e}", exc_info=True)
 # Yangi tuzatilgan payment proof handler
-@bot.message_handler(content_types=['photo', 'document'], func=lambda msg: user_states.get(msg.from_user.id, '').startswith('payment_screenshot_'))
+# Eski handle_payment_proof ni O'CHIRIB, buni qo'ying
+
+@bot.message_handler(content_types=['photo', 'document'], func=lambda msg: user_states.get(msg.from_user.id, '').startswith('paymentscreenshot_'))
 def handle_payment_proof(message):
     user_id = message.from_user.id
     try:
-        print(f"DEBUG: Payment proof ishga tushdi, user: {user_id}")
-        print(f"DEBUG: User states: {user_states}")
-
         state = user_states.get(user_id)
-        if not state:
-            print(f"DEBUG: State topilmadi user {user_id} uchun")
-            bot.send_message(user_id, "❌ Sessiya tugagan. Qaytadan /premium buyrug'ini yuboring.")
-            return
 
-        print(f"DEBUG: State: {state}")
+        # <<< MUHIM TUZATISH: State'ni to'g'ri bo'lish >>>
         parts = state.split('_')
         if len(parts) != 3:
-            print(f"DEBUG: State noto'g'ri format: {state}")
-            bot.send_message(user_id, "❌ Sessiya buzilgan. Qaytadan boshlang.")
-            user_states.pop(user_id, None)
+            bot.send_message(user_id, "❌ Sessiya buzilgan. Iltimos, /start buyrug'i bilan qaytadan boshlang.")
             return
 
         _, plan_type, amount_str = parts
         amount = int(amount_str)
-        print(f"DEBUG: Plan: {plan_type}, Amount: {amount}")
 
         # Fayl ID'sini olamiz
         file_id = None
         if message.photo:
             file_id = message.photo[-1].file_id
-            print(f"DEBUG: Photo file_id: {file_id}")
         elif message.document:
             file_id = message.document.file_id
-            print(f"DEBUG: Document file_id: {file_id}")
 
         if not file_id:
-            print("DEBUG: File ID topilmadi")
             bot.send_message(user_id, "❌ Fayl qabul qilinmadi. Iltimos, rasm yoki PDF yuboring.")
             return
 
-        print("DEBUG: Payment request yaratilmoqda...")
-        # Payment so'rovini bazada yaratish
+        # Payment so'rovini bazada YARATAMIZ
         payment_id = payment_manager.create_payment_request(user_id, plan_type, amount, check_message_link=None)
-        print(f"DEBUG: Payment ID yaratildi: {payment_id}")
-
         if not payment_id:
-            print("DEBUG: Payment ID yaratilmadi!")
             bot.send_message(user_id, "❌ To'lov so'rovini yaratishda xatolik yuz berdi.")
-            user_states.pop(user_id, None)
-            return
-
-        print(f"DEBUG: ADMIN_IDS: {ADMIN_IDS}")
-        if not ADMIN_IDS:
-            print("DEBUG: ADMIN_IDS bo'sh!")
-            bot.send_message(user_id, "❌ Admin topilmadi. Texnik xatolik.")
             return
 
         # Adminlarga yuboriladigan xabar
@@ -788,39 +760,25 @@ def handle_payment_proof(message):
             types.InlineKeyboardButton("❌ Rad etish", callback_data=f"reject_payment_{payment_id}")
         ]])
 
-        # Adminlarga yuborish
+        # Chekni to'g'ridan-to'g'ri ADMINLARGA yuboramiz
         successful_sends = 0
         for admin_id_loop in ADMIN_IDS:
             try:
-                print(f"DEBUG: Admin {admin_id_loop} ga yuborilmoqda...")
-
-                # Fayl bilan birga caption yuborish
-                if message.photo:
-                    bot.send_photo(admin_id_loop, file_id, caption=admin_text, parse_mode='HTML', reply_markup=keyboard)
-                elif message.document:
-                    bot.send_document(admin_id_loop, file_id, caption=admin_text, parse_mode='HTML', reply_markup=keyboard)
-
+                bot.copy_message(admin_id_loop, user_id, message.message_id, caption=admin_text, parse_mode='HTML', reply_markup=keyboard)
                 successful_sends += 1
-                print(f"DEBUG: Admin {admin_id_loop} ga muvaffaqiyatli yuborildi")
-
             except Exception as e:
-                print(f"DEBUG: Admin {admin_id_loop} ga yuborishda xatolik: {e}")
-                logger.error(f"Admin {admin_id_loop} ga chek yuborishda xatolik: {e}")
+                logger.error(f"Adminga ({admin_id_loop}) chek yuborishda xatolik: {e}")
 
         if successful_sends > 0:
-            bot.send_message(user_id, f"✅ To'lov cheki qabul qilindi va {successful_sends} ta adminga yuborildi!\n\n⏳ Tasdiqlanishini kuting.")
-            print(f"DEBUG: {successful_sends} ta adminga muvaffaqiyatli yuborildi")
+             bot.send_message(user_id, f"✅ To'lov cheki qabul qilindi va {successful_sends} ta adminga yuborildi!\n\n⏳ Tasdiqlanishini kuting.")
         else:
-            bot.send_message(user_id, "❌ Chekni adminlarga yuborishda xatolik yuz berdi. Iltimos, qayta urinib ko'ring.")
-            print("DEBUG: Hech bir adminga yuborib bo'lmadi")
+            bot.send_message(user_id, "❌ Xatolik: Chekni adminga yuborib bo'lmadi. Iltimos, keyinroq qayta urinib ko'ring.")
 
     except Exception as e:
-        print(f"DEBUG: Umumiy xatolik: {e}")
         logger.error(f"To'lov isbotini qabul qilishda umumiy xatolik: {e}", exc_info=True)
-        bot.send_message(user_id, "❌ Kutilmagan xatolik yuz berdi. Iltimos, qayta urinib ko'ring.")
+        bot.send_message(user_id, "❌ Kutilmagan jiddiy xatolik yuz berdi.")
     finally:
         user_states.pop(user_id, None)
-
 @bot.callback_query_handler(func=lambda call: call.data in ['toggle_membership', 'change_prices', 'change_card'])
 def handle_admin_settings_callbacks(call):
     admin_id = call.from_user.id
