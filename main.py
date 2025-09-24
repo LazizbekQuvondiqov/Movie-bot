@@ -706,9 +706,26 @@ def handle_payment_confirmation(call):
 def handle_payment_proof(message):
     user_id = message.from_user.id
     try:
-        state = user_states[user_id]
-        _, plan_type, amount_str = state.split('_')
+        print(f"DEBUG: Payment proof ishga tushdi, user: {user_id}")
+        print(f"DEBUG: User states: {user_states}")
+
+        state = user_states.get(user_id)
+        if not state:
+            print(f"DEBUG: State topilmadi user {user_id} uchun")
+            bot.send_message(user_id, "❌ Sessiya tugagan. Qaytadan /premium buyrug'ini yuboring.")
+            return
+
+        print(f"DEBUG: State: {state}")
+        parts = state.split('_')
+        if len(parts) != 3:
+            print(f"DEBUG: State noto'g'ri format: {state}")
+            bot.send_message(user_id, "❌ Sessiya buzilgan. Qaytadan boshlang.")
+            user_states.pop(user_id, None)
+            return
+
+        _, plan_type, amount_str = parts
         amount = int(amount_str)
+        print(f"DEBUG: Plan: {plan_type}, Amount: {amount}")
 
         # Fayl ID'sini olamiz
         file_id = None
