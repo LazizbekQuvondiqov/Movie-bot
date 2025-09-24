@@ -388,34 +388,63 @@ def generate_movie_list_text(movies, list_title):
 # inline qidiruvga yo'naltirishimiz mumkin, yoki shunday qoldiramiz. Keling, soddalik uchun ularni
 # to'g'ridan-to'g'ri inline qidiruvni ochadigan qilamiz.
 @bot.message_handler(func=lambda msg: msg.text in [KEYBOARD_TEXTS['top_movies'], KEYBOARD_TEXTS['latest_movies'], KEYBOARD_TEXTS['genres']])
-def handle_list_buttons(message):
-    """Top, Yangi va Janrlar tugmalarini bosish"""
+@bot.message_handler(func=lambda msg: msg.text == KEYBOARD_TEXTS['top_movies'])
+def handle_top_movies(message):
+    """Eng ommabop kinolar ro'yxatini yuborish"""
     user_id = message.from_user.id
-    user_manager.add_user(user_id)
     if not is_user_member(user_id):
-        prices = payment_manager.get_prices()
-        text = MEMBERSHIP_REQUIRED_MESSAGE.format(
-            channels="\n".join([f"📢 {ch.name}" for ch in channel_manager.get_channel_list_for_check()]),
-            week_price=prices['week'],
-            month_price=prices['month'],
-            year_price=prices['year']
-        )
-        bot.send_message(user_id, text, reply_markup=get_subscription_keyboard(), parse_mode='HTML')
+        # ... (membership check kodini takrorlamaslik uchun qisqa qoldirdim, u baribir ishlaydi)
+        send_movie(user_id, -1) # Bu membership xabarini chiqaradi
         return
 
-    query = ""
-    if message.text == KEYBOARD_TEXTS['top_movies']:
-        query = "eng ommabop"
-    elif message.text == KEYBOARD_TEXTS['latest_movies']:
-        query = "yangi"
-    elif message.text == KEYBOARD_TEXTS['genres']:
-        query = "#janr"
+    top_movies = movie_manager.get_top_movies(limit=10)
+    text = generate_movie_list_text(top_movies, "🏆 Eng Ommabop 10 Kino")
+    bot.send_message(user_id, text, parse_mode='HTML')
 
-    keyboard = types.InlineKeyboardMarkup([[
-        types.InlineKeyboardButton(f"🔎 '{message.text}' bo'yicha qidirish", switch_inline_query_current_chat=query)
-    ]])
-    bot.send_message(user_id, f"Natijalarni ko'rish uchun quyidagi tugmani bosing:", reply_markup=keyboard)
+@bot.message_handler(func=lambda msg: msg.text == KEYBOARD_TEXTS['latest_movies'])
+def handle_latest_movies(message):
+    """Eng so'nggi qo'shilgan kinolar ro'yxatini yuborish"""
+    user_id = message.from_user.id
+    if not is_user_member(user_id):
+        send_movie(user_id, -1)
+        return
 
+    latest_movies = movie_manager.get_latest_movies(limit=10)
+    text = generate_movie_list_text(latest_movies, "✨ Eng So'nggi Qo'shilgan Kinolar")
+    bot.send_message(user_id, text, parse_mode='HTML')
+
+@bot.message_handler(func=lambda msg: msg.text == KEYBOARD_TEXTS['genres'])
+def handle_genres(message):
+    """Janrlar menyusini ko'rsatish"""
+    user_id = message.from_user.id
+    if not is_user_member(user_id):
+        send_movie(user_id, -1)
+        return
+
+    genres = movie_manager.get_all_genres()
+    if not genres:
+        return bot.send_message(user_id, "Hozircha janrlar mavjud emas.")
+
+    keyboard = types.InlineKeyboardMarkup(row_width=2)
+    buttons = [types.InlineKeyboardButton(g, callback_data=f"genre_{g}") for g in genres]
+    keyboard.add(*buttons)
+    bot.send_message(user_id, "🎭 Kerakli janrni tanlang:", reply_markup=keyboard)
+
+@bot.callback_query_handler(func=lambda call: call.data.startswith('genre_'))
+def handle_genre_selection(call):
+    """Tanlangan janr bo'yicha kinolarni ko'rsatish"""
+    try:
+        bot.answer_callback_query(call.id)
+        selected_genre = call.data.split('_', 1)[1]
+
+        genre_movies = movie_manager.get_movies_by_genre(selected_genre, limit=10)
+        text = generate_movie_list_text(genre_movies, f"🎭 {selected_genre} Janridagi Kinolar (Top 10)")
+
+        # Eski "Janrni tanlang" xabarini o'chirib, yangi ro'yxatni yuboramiz
+        bot.delete_message(call.message.chat.id, call.message.message_id)
+        bot.send_message(call.message.chat.id, text, parse_mode='HTML')
+    except Exception as e:
+        logger.error(f"Janr bo'yicha kinolarni ko'rsatishda xatolik: {e}")
 @bot.message_handler(func=lambda msg: msg.text and (msg.text.startswith(KEYBOARD_TEXTS['premium'])))
 def handle_premium(message):
     try:
