@@ -427,7 +427,7 @@ def handle_genre_selection(call):
     except Exception as e:
         logger.error(f"Janr bo'yicha kinolarni ko'rsatishda xatolik: {e}")
 
-@bot.message_handler(func=lambda msg: msg.text and (msg.text.startswith(KEYBOARD_TEXTS['premium'])))
+@bot.message_handler(func=lambda msg: msg.text in [KEYBOARD_TEXTS['premium'], KEYBOARD_TEXTS['premium'] + " ✅"])
 def handle_premium(message):
     try:
         user_id = message.from_user.id
@@ -709,19 +709,41 @@ def handle_payment_proof(message):
         _, plan_type, amount_str = state.split('_')
         amount = int(amount_str)
 
-        # Chekni kanalga yuborish
+        # <<< O'ZGARISH SHU YERDA BOSHLANADI >>>
+        # Fayl turiga qarab file_id ni olamiz
+        file_id = None
+        file_type = None
+        if message.photo:
+            file_id = message.photo[-1].file_id
+            file_type = 'photo'
+        elif message.document:
+            file_id = message.document.file_id
+            file_type = 'document'
+
+        if not file_id:
+            bot.send_message(user_id, "❌ Faylni aniqlab bo'lmadi. Iltimos, qaytadan yuboring.")
+            return
+
+        # Chekni file_id orqali kanalga yangidan yuborish
         check_caption = f"🧾 Foydalanuvchi {user_id} dan to'lov cheki.\nReja: {plan_type}, Summa: {amount:,} so'm"
         try:
-            sent_check = bot.copy_message(PRIVATE_CHANNEL_ID, user_id, message.message_id, caption=check_caption)
+            if file_type == 'photo':
+                sent_check = bot.send_photo(PRIVATE_CHANNEL_ID, file_id, caption=check_caption)
+            else: # document
+                sent_check = bot.send_document(PRIVATE_CHANNEL_ID, file_id, caption=check_caption)
+
             check_message_link = f"https://t.me/c/{str(PRIVATE_CHANNEL_ID).replace('-100', '')}/{sent_check.message_id}"
+            logger.info(f"Foydalanuvchi {user_id}ning cheki kanalga yuborildi.")
+
         except Exception as e:
             logger.error(f"Chekni kanalga yuborishda xatolik: {e}")
             bot.send_message(user_id, "❌ Chekni kanalga saqlashda xatolik yuz berdi. Iltimos, adminga murojaat qiling.")
             return
+        # <<< O'ZGARISH SHU YERDA TUGAYDI >>>
 
         payment_id = payment_manager.create_payment_request(user_id, plan_type, amount, check_message_link)
         if payment_id:
-            user_info = f"👤 Foydalanuvchi: <a href='tg://user?id={user_id}'>{message.from_user.first_name}</a> (@{message.from_user.username})\n"
+            user_info = f"👤 Foydalanuvchi: <a href='tg://user?id={user_id}'>{message.from_user.first_name}</a> (@{message.from_user.username or 'N/A'})\n"
             admin_text = f"💳 <b>Yangi to'lov so'rovi!</b>\n\n{user_info}" \
                          f"💰 <b>Summa:</b> {amount:,} so'm ({plan_type})\n" \
                          f"🆔 <b>Payment ID:</b> <code>{payment_id}</code>\n\n" \
@@ -742,6 +764,7 @@ def handle_payment_proof(message):
         logger.error(f"To'lov isbotini qabul qilishda xatolik: {e}")
     finally:
         user_states.pop(user_id, None)
+
 @bot.callback_query_handler(func=lambda call: call.data in ['toggle_membership', 'change_prices', 'change_card'])
 def handle_admin_settings_callbacks(call):
     admin_id = call.from_user.id
