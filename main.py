@@ -703,6 +703,8 @@ def handle_payment_confirmation(call):
 
 # Eski handle_payment_proof ni O'CHIRIB, buni qo'ying
 
+# Eski handle_payment_proof ni O'CHIRIB, buni qo'ying
+
 @bot.message_handler(content_types=['photo', 'document'], func=lambda msg: user_states.get(msg.from_user.id, '').startswith('payment_screenshot_'))
 def handle_payment_proof(message):
     user_id = message.from_user.id
@@ -711,23 +713,44 @@ def handle_payment_proof(message):
         _, plan_type, amount_str = state.split('_')
         amount = int(amount_str)
 
-        # VAQTINCHALIK PAYMENT_ID YARATAMIZ (buni keyin bazaga yozamiz)
-        temp_payment_id = int(time.time() * 1000)
+        # <<< YENGI LOGIKA BOSHLANDI >>>
+        # Fayl ID'sini olamiz
+        file_id = None
+        if message.photo:
+            file_id = message.photo[-1].file_id
+        elif message.document:
+            file_id = message.document.file_id
 
-        user_info = f"👤 Foydalanuvchi: <a href='tg://user?id={user_id}'>{message.from_user.first_name}</a> (@{message.from_user.username or 'N/A'})\n"
-        admin_text = f"💳 <b>Yangi to'lov so'rovi!</b>\n\n{user_info}" \
-                     f"💰 <b>Summa:</b> {amount:,} so'm ({plan_type})\n" \
-                     f"🆔 <b>Vaqtinchalik ID:</b> <code>{temp_payment_id}</code>"
+        if not file_id:
+            bot.send_message(user_id, "❌ Fayl qabul qilinmadi. Iltimos, rasm yoki PDF yuboring.")
+            return
 
-        # Tugmalar endi foydalanuvchi ma'lumotlarini ham o'z ichiga oladi
+        # Payment so'rovini bazada YARATAMIZ, lekin statusi "pending" bo'ladi
+        # Chek linki endi shart emas, chunki admin o'zining lichkasidan ko'radi
+        payment_id = payment_manager.create_payment_request(user_id, plan_type, amount, check_message_link=None)
+        if not payment_id:
+            bot.send_message(user_id, "❌ To'lov so'rovini yaratishda xatolik yuz berdi.")
+            user_states.pop(user_id, None)
+            return
+
+        # Adminlarga yuboriladigan xabar
+        user_info = f"👤 Foydalanuvchi: <a href='tg://user?id={user_id}'>{message.from_user.first_name}</a> (@{message.from_user.username or 'N/A'})"
+        admin_text = f"""💳 <b>Yangi to'lov so'rovi!</b>
+
+{user_info}
+💰 <b>Summa:</b> {amount:,} so'm ({plan_type})
+🆔 <b>Payment ID:</b> <code>{payment_id}</code>"""
+
+        # Tasdiqlash/rad etish tugmalari
         keyboard = types.InlineKeyboardMarkup([[
-            types.InlineKeyboardButton("✅ Tasdiqlash", callback_data=f"approve_payment_{temp_payment_id}_{user_id}_{plan_type}_{amount}"),
-            types.InlineKeyboardButton("❌ Rad etish", callback_data=f"reject_payment_{temp_payment_id}_{user_id}")
+            types.InlineKeyboardButton("✅ Tasdiqlash", callback_data=f"approve_payment_{payment_id}"),
+            types.InlineKeyboardButton("❌ Rad etish", callback_data=f"reject_payment_{payment_id}")
         ]])
 
         # Chekni to'g'ridan-to'g'ri ADMINLARGA yuboramiz
         for admin_id_loop in ADMIN_IDS:
             try:
+                # Faylni copy_message orqali yuboramiz, bu eng ishonchli usul
                 bot.copy_message(admin_id_loop, user_id, message.message_id, caption=admin_text, parse_mode='HTML', reply_markup=keyboard)
             except Exception as e:
                 logger.error(f"Adminga ({admin_id_loop}) chek yuborishda xatolik: {e}")
@@ -739,6 +762,7 @@ def handle_payment_proof(message):
         logger.error(f"To'lov isbotini qabul qilishda xatolik: {e}")
     finally:
         user_states.pop(user_id, None)
+
 @bot.callback_query_handler(func=lambda call: call.data in ['toggle_membership', 'change_prices', 'change_card'])
 def handle_admin_settings_callbacks(call):
     admin_id = call.from_user.id
@@ -773,6 +797,8 @@ def handle_admin_settings_callbacks(call):
     except Exception as e:
         logger.error(f"Admin sozlamalari callback xatoligi: {e}")
 
+# Eski handle_admin_payment_decision ni O'CHIRIB, buni qo'ying
+
 @bot.callback_query_handler(func=lambda call: call.data.startswith(('approve_payment_', 'reject_payment_')))
 def handle_admin_payment_decision(call):
     admin_id = call.from_user.id
@@ -782,31 +808,18 @@ def handle_admin_payment_decision(call):
     try:
         parts = call.data.split('_')
         action = parts[0]
-        temp_payment_id = int(parts[2])
-        user_id = int(parts[3])
+        payment_id = int(parts[2])
+
+        db = next(payment_manager.get_db())
+        payment = db.query(Payment).get(payment_id)
+        if not payment:
+            bot.answer_callback_query(call.id, "❌ To'lov topilmadi yoki allaqachon ko'rib chiqilgan!", show_alert=True)
+            bot.edit_message_caption(call.message.caption + "\n\n⚠️ <b>Xatolik:</b> To'lov topilmadi.", call.message.chat.id, call.message.message_id, parse_mode='HTML')
+            return
+
+        user_id = payment.user_id
 
         if action == 'approve':
-            plan_type = parts[4]
-            amount = int(parts[5])
-
-            # Chekni KANALGA yuborish
-            try:
-                # Admin bosgan xabardan (chekdan) kanalga nusxa ko'chiramiz
-                sent_check = bot.copy_message(PRIVATE_CHANNEL_ID, admin_id, call.message.message_id)
-                check_message_link = f"https://t.me/c/{str(PRIVATE_CHANNEL_ID).replace('-100', '')}/{sent_check.message_id}"
-                logger.info(f"Tasdiqlangan chek (user: {user_id}) kanalga yuborildi.")
-            except Exception as e:
-                logger.error(f"Tasdiqlangan chekni kanalga yuborishda xatolik: {e}")
-                bot.answer_callback_query(call.id, "❌ Chekni kanalga yuborib bo'lmadi!", show_alert=True)
-                return
-
-            # Endi bazaga yozamiz
-            payment_id = payment_manager.create_payment_request(user_id, plan_type, amount, check_message_link)
-            if not payment_id:
-                bot.answer_callback_query(call.id, "❌ To'lovni bazaga yozishda xatolik!", show_alert=True)
-                return
-
-            # To'lovni tasdiqlaymiz
             success, message = payment_manager.approve_payment(payment_id)
             if success:
                 bot.answer_callback_query(call.id, "✅ To'lov tasdiqlandi!")
@@ -821,15 +834,19 @@ def handle_admin_payment_decision(call):
                 bot.answer_callback_query(call.id, f"❌ Xatolik: {message}", show_alert=True)
 
         else: # reject
-            bot.answer_callback_query(call.id, "❌ To'lov rad etildi!")
-            bot.send_message(user_id, "❌ Sizning to'lov so'rovingiz rad etildi. Adminga murojaat qiling.")
+            success, message = payment_manager.reject_payment(payment_id)
+            if success:
+                bot.answer_callback_query(call.id, "❌ To'lov rad etildi!")
+                bot.send_message(user_id, "❌ Sizning to'lov so'rovingiz rad etildi. Agar bu xatolik deb hisoblasangiz, adminga murojaat qiling.")
 
-            new_caption = f"{call.message.caption}\n\n❌ <b>RAD ETILDI</b> by @{call.from_user.username or call.from_user.first_name}"
-            bot.edit_message_caption(new_caption, call.message.chat.id, call.message.message_id, parse_mode='HTML', reply_markup=None)
+                new_caption = f"{call.message.caption}\n\n❌ <b>RAD ETILDI</b> by @{call.from_user.username or call.from_user.first_name}"
+                bot.edit_message_caption(new_caption, call.message.chat.id, call.message.message_id, parse_mode='HTML', reply_markup=None)
+            else:
+                bot.answer_callback_query(call.id, f"❌ Xatolik: {message}", show_alert=True)
 
     except Exception as e:
         logger.error(f"Admin to'lov qarorida xatolik: {e}", exc_info=True)
-        bot.answer_callback_query(call.id, "Kritik xatolik!", show_alert=True)
+        bot.answer_callback_query(call.id, "Kritik xatolik yuz berdi!", show_alert=True)
 def get_channels_management_keyboard():
     """Kanallarni boshqarish uchun inline klaviatura"""
     keyboard = types.InlineKeyboardMarkup(row_width=2)
